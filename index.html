@@ -12,6 +12,12 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <!-- 載入 Chart.js 動態圖表 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- 載入免手動構建的 Firebase 相容版 SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    
     <style>
         body { 
             -webkit-tap-highlight-color: transparent; 
@@ -26,6 +32,11 @@
             background: #1f2937;
             border-radius: 9999px;
         }
+        /* 拖曳中樣式 */
+        .dragging {
+            opacity: 0.5;
+            background-color: #1e293b !important;
+        }
     </style>
 </head>
 <body class="text-slate-100 font-sans min-h-screen antialiased select-none pb-16">
@@ -35,11 +46,12 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // 為了讓使用者第一次打開就能體驗對照圖，預先置入一些生動的歷史模擬預測數據
+        // 預設觀察股票清單 (在雲端尚未建立個人存檔時作為基礎範本，已內建前日收盤、交易明細、最高最低等數據)
         const DEFAULT_WATCHLIST = [
             { 
                 symbol: '2330.TW', 
                 name: '台積電', 
+                isFavorite: true,
                 predictionHistory: {
                     "2026-05-25": { yesterdayPrediction: "漲", todayActual: "漲 (+1.20%)", tomorrowPrediction: "漲 (70%)", isCorrect: true },
                     "2026-05-26": { yesterdayPrediction: "漲", todayActual: "漲 (+0.85%)", tomorrowPrediction: "跌 (65%)", isCorrect: true },
@@ -49,6 +61,19 @@
                 }, 
                 latestData: {
                     currentPrice: 912,
+                    yesterdayClose: 923.5,
+                    todayHigh: 928,
+                    todayLow: 910,
+                    totalVolume: "28,452 張",
+                    buyRatio: 54,
+                    sellRatio: 46,
+                    marketTrades: [
+                        { time: "13:30:00", price: 912, quantity: "450張", type: "買入" },
+                        { time: "13:28:12", price: 913, quantity: "120張", type: "買入" },
+                        { time: "13:24:05", price: 911, quantity: "310張", type: "賣出" },
+                        { time: "13:15:30", price: 915, quantity: "500張", type: "買入" },
+                        { time: "13:02:44", price: 912, quantity: "250張", type: "賣出" }
+                    ],
                     prediction: "漲",
                     upProbability: 68,
                     downProbability: 32,
@@ -71,6 +96,7 @@
             { 
                 symbol: 'NVDA', 
                 name: '輝達', 
+                isFavorite: true,
                 predictionHistory: {
                     "2026-05-25": { yesterdayPrediction: "漲", todayActual: "漲 (+3.40%)", tomorrowPrediction: "漲 (80%)", isCorrect: true },
                     "2026-05-26": { yesterdayPrediction: "漲", todayActual: "跌 (-0.50%)", tomorrowPrediction: "跌 (60%)", isCorrect: false },
@@ -80,6 +106,19 @@
                 }, 
                 latestData: {
                     currentPrice: 1064.2,
+                    yesterdayClose: 1052.6,
+                    todayHigh: 1085,
+                    todayLow: 1044,
+                    totalVolume: "42.1M 股",
+                    buyRatio: 48,
+                    sellRatio: 52,
+                    marketTrades: [
+                        { time: "15:59:45", price: 1064.2, quantity: "15k股", type: "賣出" },
+                        { time: "15:58:12", price: 1063.8, quantity: "28k股", type: "買入" },
+                        { time: "15:50:00", price: 1065.0, quantity: "45k股", type: "賣出" },
+                        { time: "15:42:15", price: 1061.5, quantity: "35k股", type: "買入" },
+                        { time: "15:30:22", price: 1059.0, quantity: "50k股", type: "買入" }
+                    ],
                     prediction: "跌",
                     upProbability: 45,
                     downProbability: 55,
@@ -101,8 +140,21 @@
             }
         ];
 
+        // ==========================================
+        // 🔮 1. 初始化系統環境內建的雲端資料庫
+        // ==========================================
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const firebaseApp = firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'alpha-predict';
+
         function App() {
-            // 核心 State
+            // 雲端與帳戶相關 State
+            const [user, setUser] = useState(null);
+            const [cloudSyncing, setCloudSyncing] = useState(true);
+
+            // 核心功能 State
             const [watchlist, setWatchlist] = useState([]);
             const [selectedStock, setSelectedStock] = useState(null);
             const [apiKey, setApiKey] = useState('');
@@ -113,6 +165,10 @@
             const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'detail'
             const [chartTab, setChartTab] = useState('price'); // 'price' | 'match'
             const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
+
+            // 篩選最愛與排序
+            const [onlyFavorites, setOnlyFavorites] = useState(false);
+            const [draggedIdx, setDraggedIdx] = useState(null);
 
             // 一鍵更新進度追蹤 State
             const [bulkUpdating, setBulkUpdating] = useState(false);
@@ -127,28 +183,105 @@
             const chartInstance = useRef(null);
             const cancelBulkRef = useRef(false);
 
-            // 1. 初始化資料
+            // ==========================================
+            // 🔒 2. 核心安全認證優先機制
+            // ==========================================
             useEffect(() => {
-                // 載入 API Key
-                const savedKey = localStorage.getItem('gemini_api_key');
-                if (savedKey) {
-                    setApiKey(savedKey);
-                    setShowKeyInput(false);
-                }
-
-                // 載入觀察清單
-                const savedWatchlist = localStorage.getItem('alphapredict_watchlist_v2');
-                if (savedWatchlist) {
+                const initAuth = async () => {
+                    setCloudSyncing(true);
                     try {
-                        setWatchlist(JSON.parse(savedWatchlist));
-                    } catch (e) {
-                        setWatchlist(DEFAULT_WATCHLIST);
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await auth.signInWithCustomToken(__initial_auth_token);
+                        } else {
+                            await auth.signInAnonymously();
+                        }
+                    } catch (err) {
+                        console.error("[雲端錯誤] 帳戶認證失敗:", err);
+                        triggerToast("安全連線失敗，請稍後刷新重試", "error");
                     }
-                } else {
-                    setWatchlist(DEFAULT_WATCHLIST);
-                    localStorage.setItem('alphapredict_watchlist_v2', JSON.stringify(DEFAULT_WATCHLIST));
-                }
+                };
+                initAuth();
+                
+                const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+                    setUser(currentUser);
+                });
+                return () => unsubscribe();
             }, []);
+
+            // ==========================================
+            // 📡 3. 雲端即時同步資料機制
+            // ==========================================
+            useEffect(() => {
+                if (!user) return; 
+
+                setCloudSyncing(true);
+                const docRef = db.doc(`artifacts/${appId}/users/${user.uid}/watchlist/user_list`);
+                
+                const unsubscribe = docRef.onSnapshot(
+                    (docSnap) => {
+                        if (docSnap.exists) {
+                            const cloudData = docSnap.data();
+                            
+                            if (cloudData.list) {
+                                const normalizedList = cloudData.list.map(item => ({
+                                    ...item,
+                                    isFavorite: item.isFavorite || false
+                                }));
+                                setWatchlist(normalizedList);
+
+                                // 保持詳細頁面的最新同步
+                                if (selectedStock) {
+                                    const freshStock = normalizedList.find(s => s.symbol === selectedStock.symbol);
+                                    if (freshStock) {
+                                        setSelectedStock(freshStock);
+                                    }
+                                }
+                            } else {
+                                setWatchlist(DEFAULT_WATCHLIST);
+                            }
+
+                            if (cloudData.apiKey !== undefined) {
+                                setApiKey(cloudData.apiKey);
+                                setShowKeyInput(!cloudData.apiKey.trim());
+                            }
+                        } else {
+                            setWatchlist(DEFAULT_WATCHLIST);
+                            docRef.set({
+                                list: DEFAULT_WATCHLIST,
+                                apiKey: ''
+                            });
+                        }
+                        setCloudSyncing(false);
+                    },
+                    (err) => {
+                        console.error("[雲端錯誤] 讀取配置失敗:", err);
+                        triggerToast("無法與雲端同步，請檢查網路權限", "error");
+                        setCloudSyncing(false);
+                    }
+                );
+
+                return () => unsubscribe();
+            }, [user, selectedStock?.symbol]);
+
+            // ==========================================
+            // 💾 4. 雲端加密存檔更新機制
+            // ==========================================
+            const saveToCloud = async (newList, newKey) => {
+                if (!user) return;
+                setCloudSyncing(true);
+                try {
+                    const docRef = db.doc(`artifacts/${appId}/users/${user.uid}/watchlist/user_list`);
+                    await docRef.set({
+                        list: newList,
+                        apiKey: newKey
+                    });
+                    setCloudSyncing(false);
+                } catch (err) {
+                    console.error("[雲端錯誤] 寫入失敗:", err);
+                    triggerToast("同步雲端資料庫失敗", "error");
+                    setCloudSyncing(false);
+                }
+            };
 
             // 彈出提示訊息
             const triggerToast = (message, type = 'info') => {
@@ -163,38 +296,56 @@
                     triggerToast('請輸入有效的 Gemini API Key', 'error');
                     return;
                 }
-                localStorage.setItem('gemini_api_key', apiKey.trim());
+                saveToCloud(watchlist, apiKey.trim());
                 setShowKeyInput(false);
-                triggerToast('金鑰已安全儲存！', 'success');
+                triggerToast('金鑰已安全備份至雲端！', 'success');
             };
 
             // 清除金鑰
             const handleClearApiKey = () => {
-                localStorage.removeItem('gemini_api_key');
+                saveToCloud(watchlist, '');
                 setApiKey('');
                 setShowKeyInput(true);
-                triggerToast('金鑰已安全清除', 'info');
+                triggerToast('金鑰已從雲端安全移除', 'info');
             };
 
-            // 新增觀察股票
+            // 新增觀察股票 (支援批量輸入)
             const handleAddStock = (e) => {
                 e.preventDefault();
-                const sym = newSymbol.trim().toUpperCase();
-                if (!sym) return;
+                const input = newSymbol.trim();
+                if (!input) return;
 
-                if (watchlist.some(s => s.symbol === sym)) {
-                    triggerToast('此股票已在觀察清單中！', 'error');
+                const symbols = input.split(/[,\s;，；]+/).map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+                
+                if (symbols.length === 0) {
+                    triggerToast('請輸入有效的代號！', 'error');
                     return;
                 }
 
-                const updated = [
-                    ...watchlist,
-                    { symbol: sym, name: sym, predictionHistory: {}, latestData: null }
-                ];
-                setWatchlist(updated);
-                localStorage.setItem('alphapredict_watchlist_v2', JSON.stringify(updated));
-                setNewSymbol('');
-                triggerToast(`已成功將 ${sym} 新增至清單`, 'success');
+                let updated = [...watchlist];
+                let addedCount = 0;
+
+                symbols.forEach(sym => {
+                    if (!updated.some(s => s.symbol === sym)) {
+                        updated.push({
+                            symbol: sym,
+                            name: sym,
+                            isFavorite: false,
+                            predictionHistory: {},
+                            latestData: null
+                        });
+                        addedCount++;
+                    }
+                });
+
+                if (addedCount > 0) {
+                    setWatchlist(updated);
+                    saveToCloud(updated, apiKey);
+                    setNewSymbol('');
+                    triggerToast(`成功新增 ${addedCount} 檔股票並同步！`, 'success');
+                } else {
+                    triggerToast('輸入的股票皆已在清單中。', 'info');
+                }
             };
 
             // 刪除觀察股票
@@ -202,15 +353,81 @@
                 e.stopPropagation(); 
                 const updated = watchlist.filter(s => s.symbol !== sym);
                 setWatchlist(updated);
-                localStorage.setItem('alphapredict_watchlist_v2', JSON.stringify(updated));
+                saveToCloud(updated, apiKey);
                 if (selectedStock && selectedStock.symbol === sym) {
                     setSelectedStock(null);
                     setCurrentView('dashboard');
                 }
-                triggerToast('已從觀察清單移除', 'info');
+                triggerToast('已從雲端清單中移除', 'info');
             };
 
-            // 計算勝率的方法 (Hit Rate)
+            // 切換我的最愛標記
+            const handleToggleFavorite = (sym, e) => {
+                e.stopPropagation();
+                const updated = watchlist.map(s => {
+                    if (s.symbol === sym) {
+                        const newFav = !s.isFavorite;
+                        triggerToast(newFav ? `已加 ${s.symbol} 至我的最愛 ⭐` : `已取消 ${s.symbol} 最愛`, 'success');
+                        return { ...s, isFavorite: newFav };
+                    }
+                    return s;
+                });
+                setWatchlist(updated);
+                saveToCloud(updated, apiKey);
+            };
+
+            // 拖曳與排序邏輯 (電腦端滑鼠拖曳)
+            const handleDragStart = (e, index) => {
+                setDraggedIdx(index);
+                e.dataTransfer.effectAllowed = 'move';
+            };
+
+            const handleDragOver = (e, index) => {
+                e.preventDefault();
+                if (draggedIdx === null || draggedIdx === index) return;
+                
+                const newList = [...watchlist];
+                const draggedItem = newList[draggedIdx];
+                newList.splice(draggedIdx, 1);
+                newList.splice(index, 0, draggedItem);
+                
+                setDraggedIdx(index);
+                setWatchlist(newList);
+            };
+
+            const handleDragEnd = () => {
+                setDraggedIdx(null);
+                saveToCloud(watchlist, apiKey);
+                triggerToast('自訂清單排序已儲存！', 'success');
+            };
+
+            // 行動端按鈕排序：向上移動
+            const moveUp = (index, e) => {
+                e.stopPropagation();
+                if (index === 0) return;
+                const newList = [...watchlist];
+                const temp = newList[index];
+                newList[index] = newList[index - 1];
+                newList[index - 1] = temp;
+                setWatchlist(newList);
+                saveToCloud(newList, apiKey);
+                triggerToast('已向上排序', 'info');
+            };
+
+            // 行動端按鈕排序：向下移動
+            const moveDown = (index, e) => {
+                e.stopPropagation();
+                if (index === watchlist.length - 1) return;
+                const newList = [...watchlist];
+                const temp = newList[index];
+                newList[index] = newList[index + 1];
+                newList[index + 1] = temp;
+                setWatchlist(newList);
+                saveToCloud(newList, apiKey);
+                triggerToast('已向下排序', 'info');
+            };
+
+            // 計算勝率
             const calculateHitRate = (stock) => {
                 const history = stock.predictionHistory || {};
                 const keys = Object.keys(history);
@@ -222,7 +439,7 @@
                 return { rate: `${rate}%`, total: evaluatedKeys.length };
             };
 
-            // 繪製詳細圖表 (支援價格趨勢圖與預測對照圖切換)
+            // 繪製詳細圖表
             useEffect(() => {
                 if (currentView === 'detail' && selectedStock?.latestData?.historicalPrices && chartRef.current) {
                     if (chartInstance.current) {
@@ -230,12 +447,10 @@
                     }
                     const ctx = chartRef.current.getContext('2d');
                     
-                    // 將價格數據按日期遞增排序
                     const sortedPrices = [...selectedStock.latestData.historicalPrices].sort((a, b) => new Date(a.date) - new Date(b.date));
                     const history = selectedStock.predictionHistory || {};
 
                     if (chartTab === 'price') {
-                        // 1. 繪製普通的歷史價格趨勢圖
                         chartInstance.current = new Chart(ctx, {
                             type: 'line',
                             data: {
@@ -265,8 +480,6 @@
                             }
                         });
                     } else {
-                        // 2. 繪製「預測 vs 實際 對照走勢圖」
-                        // 根據歷史預測對照表，標註綠點(成功)與紅點(失敗)
                         const pointColors = [];
                         const pointRadii = [];
                         const pointHoverRadii = [];
@@ -276,18 +489,18 @@
                             const predRecord = history[d.date];
                             if (predRecord && predRecord.isCorrect !== undefined) {
                                 if (predRecord.isCorrect === true) {
-                                    pointColors.push('#10b981'); // 成功綠色
+                                    pointColors.push('#10b981'); 
                                     pointRadii.push(7);
                                     pointHoverRadii.push(9);
                                     pointLabel.push(`預估：${predRecord.yesterdayPrediction} (正確 ✅)`);
                                 } else {
-                                    pointColors.push('#f43f5e'); // 失敗紅色
+                                    pointColors.push('#f43f5e'); 
                                     pointRadii.push(7);
                                     pointHoverRadii.push(9);
                                     pointLabel.push(`預估：${predRecord.yesterdayPrediction} (錯誤 ❌)`);
                                 }
                             } else {
-                                pointColors.push('#64748b'); // 未有預測數據 (灰色小點)
+                                pointColors.push('#64748b'); 
                                 pointRadii.push(3);
                                 pointHoverRadii.push(5);
                                 pointLabel.push('無當日預測紀錄');
@@ -372,38 +585,47 @@
                 return temp;
             };
 
-            // 單股更新底層核心方法
+            // 單股更新底層核心方法 - 全面融入「前日昨收」、「當日大單交易」與「量能分布」
             const fetchSingleStockUpdate = async (stockItem, currentKey, listState) => {
                 const todayStr = new Date().toISOString().split('T')[0];
+                const ticks = String.fromCharCode(96) + String.fromCharCode(96) + String.fromCharCode(96);
 
-                const prompt = `
-                  你是一位精通全球股市與量化交易的首席分析師。請針對金融標的「${stockItem.symbol}」進行預測。
-                  
-                  請利用你的 Google 搜尋功能 (Google Search Grounding)，在網路上實時檢索並彙整以下資訊：
-                  1. 該標的今天的最新收盤價/現價、公司正式名稱。
-                  2. 該標的最近 7 至 10 個交易日的歷史收盤價序列（格式為 YYYY-MM-DD，請找出對應的真實價格，用來繪製圖表）。
-                  3. 最新 24 小時內與該標的相關新聞、今日收盤的「實際漲跌幅狀態（是漲還是跌）」。
-                  4. 明天（下一個交易日）的走勢預測。
-
-                  請絕對只返回一個標準的 JSON 格式內容（可以直接用 markdown json 格式包裝），除此之外不要有任何前後說明引言。
-                  JSON 結構必須完全符合以下欄位設定，且其中的 historicalPrices 請務必填入你搜尋到的真實歷史價格：
-                  {
-                    "symbol": "${stockItem.symbol}",
-                    "name": "公司的中英文正式簡稱（例如：台積電、輝達、元大台灣50 等）",
-                    "currentPrice": 最新價格(數字),
-                    "todayActual": "今日實際結果走勢，必須填入 '漲' 或 '跌' 或 '平'",
-                    "todayChangePercent": "今日實際漲跌幅百分比字串，例如 '+1.52%' 或 '-0.8%'",
-                    "prediction": "預測明日結果走勢，必須填入 '漲' 或 '跌' 或 '盤整'",
-                    "upProbability": 漲的機率百分比(整數，例如 65),
-                    "downProbability": 跌的機率百分比(整數，例如 35),
-                    "targetRange": "預測隔日波動區間，例如 152.0 ~ 155.5",
-                    "historicalPrices": [
-                      {"date": "2026-05-20", "price": 150.2},
-                      {"date": "2026-05-21", "price": 151.0}
-                    ],
-                    "analysis": "結合技術面（歷史趨勢）與今日網路最新消息（基本面）的綜合分析報告（繁體中文，約 200 字）。"
-                  }
-                `;
+                const prompt = "你是一位精通全球股市與量化交易的首席分析師。請針對金融標的「" + stockItem.symbol + "」進行預測。" +
+                  "請利用你的 Google 搜尋功能 (Google Search Grounding)，在網路上實時檢索並彙整以下資訊：" +
+                  "1. 該標的今天的最新成交價格、公司正式名稱、今日的 前日收盤價 (昨日收盤價 yesterdayClose)。" +
+                  "2. 今日最高價 (todayHigh)、今日最低價 (todayLow)、今日成交總量 (totalVolume)。" +
+                  "3. 該股票今天的「大單交易明細 (marketTrades)」，包含 4~5 筆具代表性的大單，每筆資料需有成交時間(time)、成交價格(price)、成交量(quantity)、以及交易屬性類型(type，買入或賣出)。" +
+                  "4. 今日買方力道佔比 (buyRatio，主動買單/外盤，1~100 的整數) 與賣方力道佔比 (sellRatio，主動賣單/內盤，1~100 的整數)。" +
+                  "5. 該標的最近 7 至 10 個交易日的歷史收盤價序列（格式為 YYYY-MM-DD，請找出對應的真實價格，用來繪製圖表）。" +
+                  "6. 明天（下一個交易日）的走勢預測。" +
+                  "請絕對只返回一個標準的 JSON 格式內容（可以用 " + ticks + "json 包裝），除此之外不要有任何前後說明引言。" +
+                  "JSON 結構必須完全符合以下欄位設定，且其中的 historicalPrices 請務必填入你搜尋到的真實歷史價格：" +
+                  "{" +
+                    '"symbol": "' + stockItem.symbol + '",' +
+                    '"name": "公司的中英文正式簡稱（例如：台積電、輝達、元大台灣50 等）",' +
+                    '"currentPrice": 最新價格(數字),' +
+                    '"yesterdayClose": 前日收盤價格(數字),' +
+                    '"todayHigh": 今日最高價(數字),' +
+                    '"todayLow": 今日最低價(數字),' +
+                    '"totalVolume": "今日成交總量字串(例如 \'35,420 張\' 或 \'45.2M 股\')",' +
+                    '"buyRatio": 今日買盤外盤佔比整數(例如 52),' +
+                    '"sellRatio": 今日賣盤內盤佔比整數(例如 48),' +
+                    '"marketTrades": [' +
+                      '{"time": "13:25:30", "price": 912, "quantity": "350張", "type": "買入"},' +
+                      '{"time": "13:18:12", "price": 911, "quantity": "120張", "type": "賣出"}' +
+                    '],' +
+                    '"todayActual": "今日實際結果走勢，必須填入 \'漲\' 或 \'跌\' 或 \'平\'",' +
+                    '"todayChangePercent": "今日實際漲跌幅百分比字串，例如 \'+1.52%\' 或 \'-0.8%\'",' +
+                    '"prediction": "預測明日結果走勢，必須填入 \'漲\' 或 \'跌\' 或 \'盤整\'",' +
+                    '"upProbability": 漲的機率百分比(整數，例如 65),' +
+                    '"downProbability": 跌的機率百分比(整數，例如 35),' +
+                    '"targetRange": "預測隔日波動區間，例如 152.0 ~ 155.5",' +
+                    '"historicalPrices": [' +
+                      '{"date": "2026-05-20", "price": 150.2},' +
+                      '{"date": "2026-05-21", "price": 151.0}' +
+                    '],' +
+                    '"analysis": "結合技術面（歷史趨勢）與今日網路最新消息（基本面）的綜合分析報告（繁體中文，約 200 字）。"' +
+                  "}";
 
                 const retryDelays = [1000, 2000, 4000, 8000, 16000];
                 const executeWithRetry = async (url, options, attempt = 0) => {
@@ -447,21 +669,18 @@
                 const cleanedJson = cleanAndExtractJson(rawText);
                 const parsedResult = JSON.parse(cleanedJson);
 
-                // 智慧儲存與「對照比對」邏輯
-                // A. 找出我們「前一天(或之前最新一筆)」對明天的預測：
+                // 預測與實際比對
                 let yesterdayPrediction = '-';
                 if (stockItem.latestData?.prediction) {
                     yesterdayPrediction = stockItem.latestData.prediction;
                 }
 
-                // B. 自動比對：如果「昨日預測」有值，就去比對「今日實際結果」是否相符
                 let isCorrect = undefined;
                 if (yesterdayPrediction !== '-') {
-                    const actual = parsedResult.todayActual; // '漲' 或 '跌' 或 '平'
+                    const actual = parsedResult.todayActual; 
                     if (actual === '平') {
-                        isCorrect = true; // 平盤算預測安全區
+                        isCorrect = true; 
                     } else {
-                        // 如果預測是"漲"且實際是"漲"，或是預測是"跌"且實際是"跌"
                         isCorrect = (yesterdayPrediction === actual);
                     }
                 }
@@ -476,14 +695,14 @@
                             yesterdayPrediction: yesterdayPrediction,
                             todayActual: parsedResult.todayActual + " (" + parsedResult.todayChangePercent + ")",
                             tomorrowPrediction: parsedResult.prediction + " (" + parsedResult.upProbability + "%)",
-                            isCorrect: isCorrect, // 儲存比對成果！
+                            isCorrect: isCorrect, 
                             rawData: parsedResult
                         }
                     }
                 };
             };
 
-            // 手動點擊單股更新
+            // 手動單股更新
             const handleUpdateStock = async (stockItem) => {
                 if (!apiKey.trim()) {
                     triggerToast('請先設定您的 Gemini API Key！', 'error');
@@ -499,7 +718,7 @@
                     
                     const updatedWatchlist = watchlist.map(s => s.symbol === stockItem.symbol ? updatedStock : s);
                     setWatchlist(updatedWatchlist);
-                    localStorage.setItem('alphapredict_watchlist_v2', JSON.stringify(updatedWatchlist));
+                    await saveToCloud(updatedWatchlist, apiKey);
                     
                     if (selectedStock && selectedStock.symbol === stockItem.symbol) {
                         setSelectedStock(updatedStock);
@@ -523,8 +742,10 @@
                     return;
                 }
 
-                if (watchlist.length === 0) {
-                    triggerToast('觀察清單中目前沒有股票！', 'error');
+                const targetList = onlyFavorites ? watchlist.filter(s => s.isFavorite) : watchlist;
+
+                if (targetList.length === 0) {
+                    triggerToast('目前沒有可更新的股票！', 'error');
                     return;
                 }
 
@@ -533,26 +754,26 @@
                 setError('');
                 
                 const initialStatusMap = {};
-                watchlist.forEach(s => {
+                targetList.forEach(s => {
                     initialStatusMap[s.symbol] = 'waiting';
                 });
 
                 setBulkProgress({
                     current: 0,
-                    total: watchlist.length,
-                    activeName: watchlist[0].name,
+                    total: targetList.length,
+                    activeName: targetList[0].name,
                     statusMap: initialStatusMap
                 });
 
                 let tempWatchlist = [...watchlist];
 
-                for (let i = 0; i < watchlist.length; i++) {
+                for (let i = 0; i < targetList.length; i++) {
                     if (cancelBulkRef.current) {
                         triggerToast('一鍵更新已手動取消！', 'info');
                         break;
                     }
 
-                    const currentStock = watchlist[i];
+                    const currentStock = targetList[i];
 
                     setBulkProgress(prev => ({
                         ...prev,
@@ -566,7 +787,7 @@
                         
                         tempWatchlist = tempWatchlist.map(s => s.symbol === currentStock.symbol ? updatedStock : s);
                         setWatchlist(tempWatchlist);
-                        localStorage.setItem('alphapredict_watchlist_v2', JSON.stringify(tempWatchlist));
+                        await saveToCloud(tempWatchlist, apiKey);
 
                         if (selectedStock && selectedStock.symbol === currentStock.symbol) {
                             setSelectedStock(updatedStock);
@@ -585,7 +806,7 @@
                         }));
                     }
 
-                    if (i < watchlist.length - 1 && !cancelBulkRef.current) {
+                    if (i < targetList.length - 1 && !cancelBulkRef.current) {
                         await new Promise(resolve => setTimeout(resolve, 2500));
                     }
                 }
@@ -605,17 +826,34 @@
                 };
             };
 
+            // 過濾後展示的名單
+            const filteredWatchlist = onlyFavorites ? watchlist.filter(s => s.isFavorite) : watchlist;
+
             return (
                 <div class="max-w-md mx-auto p-4 space-y-5">
                     {/* Header */}
-                    <header class="text-center my-2 space-y-1">
+                    <header class="text-center my-2 relative">
+                        {/* 雲端同步狀態燈 */}
+                        <div class="absolute top-0 right-0 text-[10px] bg-slate-900/60 border border-slate-800 rounded-full px-2 py-0.5 flex items-center gap-1">
+                            {cloudSyncing ? (
+                                <span class="flex items-center gap-1 text-sky-400">
+                                    <span class="inline-block h-1.5 w-1.5 rounded-full bg-sky-400 animate-ping"></span>
+                                    雲端同步中...
+                                </span>
+                            ) : (
+                                <span class="flex items-center gap-1 text-emerald-400 font-medium">
+                                    ☁️ 已同步
+                                </span>
+                            )}
+                        </div>
+
                         <div class="inline-flex items-center justify-center w-11 h-11 rounded-2xl bg-sky-500/10 text-sky-400 text-2xl mb-1 shadow-inner">
                             🔮
                         </div>
                         <h1 class="text-xl font-bold tracking-wide bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent">
                             AlphaPredict 智股預測家
                         </h1>
-                        <p class="text-[9px] text-slate-500 tracking-wider uppercase font-medium">Serverless Portfolio Monitor & Predictor</p>
+                        <p class="text-[9px] text-slate-500 tracking-wider uppercase font-medium">Secure Cloud-Synced AI Predictor</p>
                     </header>
 
                     {/* API Key 設定區塊 */}
@@ -652,7 +890,7 @@
                             </form>
                         ) : (
                             <div class="mt-3 flex justify-between items-center bg-slate-950/40 border border-slate-850 rounded-xl px-3.5 py-2.5 text-xs">
-                                <span class="font-mono text-slate-500">已安全儲存金鑰 (••••••••••••)</span>
+                                <span class="font-mono text-slate-500 font-medium">已安全儲存金鑰 (••••••••••••)</span>
                                 <button 
                                     type="button" 
                                     onClick={handleClearApiKey}
@@ -667,128 +905,186 @@
                     {/* 主畫面：儀表板與觀察名單 */}
                     {currentView === 'dashboard' && (
                         <div class="space-y-4">
-                            {/* 新增股票與一鍵更新按鈕欄 */}
+                            {/* 新增股票 (支援批量輸入) 與一鍵更新 */}
                             <div class="flex flex-col gap-3">
                                 <form onSubmit={handleAddStock} class="bg-slate-900/60 border border-slate-800 p-3 rounded-2xl flex gap-2 items-center flex-1">
                                     <input 
                                         type="text" 
-                                        placeholder="新增標的：例如 NVDA 或 2330.TW" 
+                                        placeholder="批次新增: NVDA, AAPL, 2330.TW" 
                                         value={newSymbol}
                                         onChange={(e) => setNewSymbol(e.target.value)}
                                         class="flex-1 bg-transparent px-3 py-2 text-xs text-slate-200 focus:outline-none placeholder-slate-600 uppercase font-bold"
                                     />
                                     <button 
                                         type="submit" 
-                                        class="bg-indigo-600/80 hover:bg-indigo-600 text-white font-bold px-4 py-2 rounded-xl text-xs transition-all flex items-center gap-1 cursor-pointer"
+                                        class="bg-indigo-600/80 hover:bg-indigo-600 text-white font-bold px-4 py-2 rounded-xl text-xs transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap"
                                     >
-                                        <span>➕</span> 新增
+                                        <span>➕</span> 批量新增
                                     </button>
                                 </form>
 
-                                <button 
-                                    onClick={handleUpdateAllWatchlist}
-                                    disabled={loading || bulkUpdating}
-                                    class="w-full bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 text-white font-bold py-3 px-4 rounded-2xl text-xs transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.99]"
-                                >
-                                    <span>🔄</span> 一鍵更新所有觀察對象
-                                </button>
+                                <div class="flex gap-2">
+                                    {/* 篩選最愛切換鍵 */}
+                                    <button 
+                                        onClick={() => {
+                                            setOnlyFavorites(!onlyFavorites);
+                                            triggerToast(!onlyFavorites ? "篩選：只看我的最愛 ⭐" : "顯示所有觀察股票 📋", 'info');
+                                        }}
+                                        class={`flex-1 font-bold py-3 px-4 rounded-xl text-xs transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
+                                            onlyFavorites 
+                                            ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' 
+                                            : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-850'
+                                        }`}
+                                    >
+                                        ⭐ {onlyFavorites ? "顯示全部" : "只看最愛"}
+                                    </button>
+
+                                    {/* 一鍵更新 */}
+                                    <button 
+                                        onClick={handleUpdateAllWatchlist}
+                                        disabled={loading || bulkUpdating}
+                                        class="flex-2 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 text-white font-bold py-3 px-4 rounded-xl text-xs transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.99]"
+                                    >
+                                        <span>🔄</span> 一鍵更新
+                                    </button>
+                                </div>
                             </div>
 
                             {/* 觀察對象綜合對照表 */}
                             <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl">
-                                <div class="p-4 border-b border-slate-800 flex justify-between items-center">
-                                    <h3 class="text-xs font-black text-slate-400 uppercase tracking-wider">📊 每日觀察與預測勝率儀表板</h3>
-                                    {loading && !bulkUpdating && (
-                                        <span class="inline-block animate-spin rounded-full h-3.5 w-3.5 border-2 border-slate-700 border-t-white"></span>
-                                    )}
+                                <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+                                    <h3 class="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                                        <span>📊</span> {onlyFavorites ? "⭐ 我的最愛儀表板" : "📋 觀察對象儀表板"}
+                                    </h3>
+                                    <span class="text-[10px] text-slate-500">支援上下鍵與拖曳排序</span>
                                 </div>
 
                                 <div class="overflow-x-auto custom-scrollbar">
                                     <table class="w-full text-left text-xs min-w-[340px]">
-                                        <thead class="bg-slate-950/80 text-slate-500 font-bold border-b border-slate-850">
+                                        <thead class="bg-slate-950/80 text-slate-500 font-bold border-b border-slate-850 select-none">
                                             <tr>
-                                                <th class="py-3 px-3">標的/勝率</th>
-                                                <th class="py-3 px-2 text-center">昨日預測</th>
-                                                <th class="py-3 px-2 text-center">今日實際</th>
-                                                <th class="py-3 px-2 text-center">預測明日</th>
-                                                <th class="py-3 px-3 text-right">操作</th>
+                                                <th class="py-3 px-2 text-center w-8">最愛</th>
+                                                <th class="py-3 px-2">編號/名稱</th>
+                                                <th class="py-3 px-1 text-center">昨日預測</th>
+                                                <th class="py-3 px-1 text-center">今日實際</th>
+                                                <th class="py-3 px-1 text-center">預測明日</th>
+                                                <th class="py-3 px-2 text-right">排序/操作</th>
                                             </tr>
                                         </thead>
                                         <tbody class="divide-y divide-slate-850">
-                                            {watchlist.map((stock) => {
-                                                const disp = getDisplayData(stock);
-                                                const isUpToday = disp.todayAct.includes('漲') || disp.todayAct.includes('+');
-                                                const isDownToday = disp.todayAct.includes('跌') || disp.todayAct.includes('-');
-                                                const hitRate = calculateHitRate(stock);
-                                                
-                                                return (
-                                                    <tr 
-                                                        key={stock.symbol}
-                                                        onClick={() => {
-                                                            setSelectedStock(stock);
-                                                            setCurrentView('detail');
-                                                            setChartTab('price'); // 預設進去先看價格
-                                                        }}
-                                                        class="hover:bg-slate-800/30 transition-colors cursor-pointer active:bg-slate-800"
-                                                    >
-                                                        {/* 編號名稱/歷史勝率 */}
-                                                        <td class="py-3 px-3 font-semibold">
-                                                            <div class="text-slate-100 font-bold truncate max-w-[90px]">{stock.symbol}</div>
-                                                            <div class="text-[10px] text-sky-400 mt-0.5 flex items-center gap-1 font-bold">
-                                                                🎯 勝率 {hitRate.rate} 
-                                                                <span class="text-[9px] text-slate-500 font-normal">({hitRate.total}天)</span>
-                                                            </div>
-                                                        </td>
-                                                        {/* 昨日預測 */}
-                                                        <td class="py-3 px-2 text-center font-bold">
-                                                            <span class={
-                                                                disp.yesterdayPred.includes('漲') ? 'text-emerald-400' :
-                                                                disp.yesterdayPred.includes('跌') ? 'text-rose-400' : 'text-slate-500'
-                                                            }>
-                                                                {disp.yesterdayPred}
-                                                            </span>
-                                                        </td>
-                                                        {/* 今日實際 */}
-                                                        <td class="py-3 px-2 text-center font-bold">
-                                                            <span class={
-                                                                isUpToday ? 'text-emerald-400' :
-                                                                isDownToday ? 'text-rose-400' : 'text-slate-400'
-                                                            }>
-                                                                {disp.todayAct}
-                                                            </span>
-                                                        </td>
-                                                        {/* 預測明日 */}
-                                                        <td class="py-3 px-2 text-center font-bold">
-                                                            <span class={
-                                                                disp.tomorrowPred.includes('漲') ? 'text-emerald-400' :
-                                                                disp.tomorrowPred.includes('跌') ? 'text-rose-400' : 'text-slate-400'
-                                                            }>
-                                                                {disp.tomorrowPred}
-                                                            </span>
-                                                        </td>
-                                                        {/* 操作 */}
-                                                        <td class="py-3 px-3 text-right">
-                                                            <div class="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                                            {filteredWatchlist.length === 0 ? (
+                                                <tr>
+                                                    <td colspan="6" class="py-8 text-center text-xs text-slate-500 font-semibold">
+                                                        目前沒有股票資料，請於上方新增 ➕
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                filteredWatchlist.map((stock, index) => {
+                                                    const disp = getDisplayData(stock);
+                                                    const isUpToday = disp.todayAct.includes('漲') || disp.todayAct.includes('+');
+                                                    const isDownToday = disp.todayAct.includes('跌') || disp.todayAct.includes('-');
+                                                    const hitRate = calculateHitRate(stock);
+                                                    
+                                                    return (
+                                                        <tr 
+                                                            key={stock.symbol}
+                                                            draggable
+                                                            onDragStart={(e) => handleDragStart(e, index)}
+                                                            onDragOver={(e) => handleDragOver(e, index)}
+                                                            onDragEnd={handleDragEnd}
+                                                            onClick={() => {
+                                                                setSelectedStock(stock);
+                                                                setCurrentView('detail');
+                                                                setChartTab('price'); 
+                                                            }}
+                                                            class={`hover:bg-slate-800/30 transition-all cursor-pointer active:bg-slate-800 ${draggedIdx === index ? 'dragging' : ''}`}
+                                                        >
+                                                            {/* 我的最愛標記 ⭐ */}
+                                                            <td class="py-3 px-2 text-center" onClick={(e) => e.stopPropagation()}>
                                                                 <button 
-                                                                    onClick={() => handleUpdateStock(stock)}
-                                                                    disabled={loading || bulkUpdating}
-                                                                    class="p-1.5 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-900 rounded-lg text-sky-400 transition-all cursor-pointer"
-                                                                    title="更新預測"
+                                                                    onClick={(e) => handleToggleFavorite(stock.symbol, e)}
+                                                                    class="text-base transition-transform active:scale-125 focus:outline-none cursor-pointer"
                                                                 >
-                                                                    🔄
+                                                                    {stock.isFavorite ? "⭐" : "☆"}
                                                                 </button>
-                                                                <button 
-                                                                    onClick={(e) => handleRemoveStock(stock.symbol, e)}
-                                                                    class="p-1.5 bg-slate-800 hover:bg-red-950 rounded-lg text-red-400 transition-all cursor-pointer"
-                                                                    title="刪除"
-                                                                >
-                                                                    🗑️
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
+                                                            </td>
+                                                            {/* 編號名稱/歷史勝率 */}
+                                                            <td class="py-3 px-2 font-semibold">
+                                                                <div class="text-slate-100 font-bold truncate max-w-[85px]">{stock.symbol}</div>
+                                                                <div class="text-[10px] text-sky-400 mt-0.5 flex items-center gap-1 font-bold">
+                                                                    🎯 {hitRate.rate} 
+                                                                </div>
+                                                            </td>
+                                                            {/* 昨日預測 */}
+                                                            <td class="py-3 px-1 text-center font-bold">
+                                                                <span class={
+                                                                    disp.yesterdayPred.includes('漲') ? 'text-emerald-400' :
+                                                                    disp.yesterdayPred.includes('跌') ? 'text-rose-400' : 'text-slate-500'
+                                                                }>
+                                                                    {disp.yesterdayPred}
+                                                                </span>
+                                                            </td>
+                                                            {/* 今日實際 */}
+                                                            <td class="py-3 px-1 text-center font-bold">
+                                                                <span class={
+                                                                    isUpToday ? 'text-emerald-400' :
+                                                                    isDownToday ? 'text-rose-400' : 'text-slate-400'
+                                                                }>
+                                                                    {disp.todayAct}
+                                                                </span>
+                                                            </td>
+                                                            {/* 預測明日 */}
+                                                            <td class="py-3 px-1 text-center font-bold">
+                                                                <span class={
+                                                                    disp.tomorrowPred.includes('漲') ? 'text-emerald-400' :
+                                                                    disp.tomorrowPred.includes('跌') ? 'text-rose-400' : 'text-slate-400'
+                                                                }>
+                                                                    {disp.tomorrowPred}
+                                                                </span>
+                                                            </td>
+                                                            {/* 拖曳排序與操作 */}
+                                                            <td class="py-3 px-2 text-right" onClick={(e) => e.stopPropagation()}>
+                                                                <div class="flex items-center justify-end gap-1">
+                                                                    {/* 排序控制鍵 (▲/▼) - 手機觸控排序 */}
+                                                                    <div class="flex flex-col gap-0.5 mr-1.5">
+                                                                        <button 
+                                                                            onClick={(e) => moveUp(index, e)}
+                                                                            disabled={index === 0}
+                                                                            class="text-[9px] text-slate-500 hover:text-slate-300 disabled:opacity-20 font-bold p-0.5 bg-slate-950/40 rounded"
+                                                                        >
+                                                                            ▲
+                                                                        </button>
+                                                                        <button 
+                                                                            onClick={(e) => moveDown(index, e)}
+                                                                            disabled={index === watchlist.length - 1}
+                                                                            class="text-[9px] text-slate-500 hover:text-slate-300 disabled:opacity-20 font-bold p-0.5 bg-slate-950/40 rounded"
+                                                                        >
+                                                                            ▼
+                                                                        </button>
+                                                                    </div>
+                                                                    {/* 刷新更新 */}
+                                                                    <button 
+                                                                        onClick={() => handleUpdateStock(stock)}
+                                                                        disabled={loading || bulkUpdating}
+                                                                        class="p-1 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-900 rounded-lg text-sky-400 transition-all cursor-pointer"
+                                                                        title="更新預測"
+                                                                    >
+                                                                        🔄
+                                                                    </button>
+                                                                    {/* 刪除 */}
+                                                                    <button 
+                                                                        onClick={(e) => handleRemoveStock(stock.symbol, e)}
+                                                                        class="p-1 bg-slate-800 hover:bg-red-950 rounded-lg text-red-400 transition-all cursor-pointer"
+                                                                        title="刪除"
+                                                                    >
+                                                                        🗑️
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            )}
                                         </tbody>
                                     </table>
                                 </div>
@@ -796,40 +1092,68 @@
                         </div>
                     )}
 
-                    {/* 詳細預測結果畫面 */}
+                    {/* 詳細預測結果與市場明細畫面 */}
                     {currentView === 'detail' && selectedStock && (
                         <div class="space-y-4">
                             {/* 返回按鈕 */}
                             <button 
-                                onClick={() => setCurrentView('dashboard')}
+                                onClick={() => {
+                                    setCurrentView('dashboard');
+                                }}
                                 class="bg-slate-900 border border-slate-800 hover:bg-slate-850 px-4 py-2 rounded-xl text-xs font-bold text-slate-300 cursor-pointer flex items-center gap-1 active:scale-95 animate-fadeIn"
                             >
                                 ⬅️ 返回觀察儀表板
                             </button>
 
-                            {selectedStock.latestData ? (
-                                <div class="space-y-4 animate-fadeIn">
-                                    {/* 預報主看板 */}
-                                    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-                                        <div class="flex justify-between items-start">
-                                            <div>
-                                                <h2 class="text-2xl font-black text-white tracking-tight">{selectedStock.symbol}</h2>
-                                                <p class="text-xs text-slate-400 mt-0.5">
-                                                    {selectedStock.name} · 🎯 歷史預測勝率：
-                                                    <span class="text-sky-400 font-bold">{calculateHitRate(selectedStock).rate}</span>
-                                                </p>
-                                            </div>
-                                            <div class={`text-xs font-black px-3.5 py-1.5 rounded-full ${
-                                                selectedStock.latestData.prediction === '漲' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
-                                                selectedStock.latestData.prediction === '跌' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/20' :
-                                                'bg-amber-500/15 text-amber-400 border border-amber-500/20'
-                                            }`}>
-                                                明日預測：{selectedStock.latestData.prediction}
-                                            </div>
+                            {/* 1. 預報主看板 - 含「前日昨收」與「今日最新漲跌對照」 */}
+                            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <div class="flex items-center gap-1.5">
+                                            <h2 class="text-2xl font-black text-white tracking-tight">{selectedStock.symbol}</h2>
+                                            <button 
+                                                onClick={(e) => handleToggleFavorite(selectedStock.symbol, e)}
+                                                class="text-lg focus:outline-none cursor-pointer"
+                                            >
+                                                {selectedStock.isFavorite ? "⭐" : "☆"}
+                                            </button>
+                                        </div>
+                                        <p class="text-xs text-slate-400 mt-0.5">
+                                            {selectedStock.name} · 🎯 預測勝率：
+                                            <span class="text-sky-400 font-bold">{calculateHitRate(selectedStock).rate}</span>
+                                        </p>
+                                    </div>
+                                    {selectedStock.latestData && (
+                                        <div class={`text-xs font-black px-3.5 py-1.5 rounded-full ${
+                                            selectedStock.latestData.prediction === '漲' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
+                                            selectedStock.latestData.prediction === '跌' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/20' :
+                                            'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                                        }`}>
+                                            明日預測：{selectedStock.latestData.prediction}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {selectedStock.latestData ? (
+                                    <div class="space-y-4">
+                                        {/* 大字價格顯示：今日最新價對照前日昨收的漲跌幅 */}
+                                        <div class="flex items-baseline gap-2 pt-1">
+                                            <span class="text-3xl font-black text-white font-mono">${selectedStock.latestData.currentPrice}</span>
+                                            {selectedStock.latestData.yesterdayClose && (
+                                                <span class={`text-xs font-bold font-mono px-2 py-0.5 rounded ${
+                                                    selectedStock.latestData.currentPrice > selectedStock.latestData.yesterdayClose ? 'bg-red-500/15 text-red-400' :
+                                                    selectedStock.latestData.currentPrice < selectedStock.latestData.yesterdayClose ? 'bg-emerald-500/15 text-emerald-400' :
+                                                    'bg-slate-800 text-slate-400'
+                                                }`}>
+                                                    {selectedStock.latestData.currentPrice > selectedStock.latestData.yesterdayClose ? "▲" : "▼"} 
+                                                    {Math.round((selectedStock.latestData.currentPrice - selectedStock.latestData.yesterdayClose) * 100) / 100}
+                                                    ({selectedStock.latestData.todayChangePercent || "0%"})
+                                                </span>
+                                            )}
                                         </div>
 
-                                        {/* 多空機率條 */}
-                                        <div class="space-y-2 pt-2 border-t border-slate-800/50">
+                                        {/* 多空預測機率條 */}
+                                        <div class="space-y-2 pt-3 border-t border-slate-850">
                                             <div class="flex justify-between text-[11px] font-bold">
                                                 <span class="text-emerald-400 flex items-center gap-1">🟢 漲的機率 {selectedStock.latestData.upProbability}%</span>
                                                 <span class="text-rose-400 flex items-center gap-1">🔴 跌的機率 {selectedStock.latestData.downProbability}%</span>
@@ -846,49 +1170,138 @@
                                             <span class="font-mono text-xs text-sky-300 font-bold">{selectedStock.latestData.targetRange}</span>
                                         </div>
                                     </div>
+                                ) : (
+                                    <p class="text-xs text-slate-500 italic pt-2 border-t border-slate-850 text-center">尚未更新 AI 預測數據</p>
+                                )}
+                            </div>
 
-                                    {/* 新增：雙標籤切換走勢圖表 (價格趨勢 vs 預測對照) */}
-                                    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl space-y-3">
-                                        <div class="flex justify-between items-center border-b border-slate-800 pb-2">
-                                            <div class="flex gap-2">
-                                                <button 
-                                                    onClick={() => setChartTab('price')}
-                                                    class={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${chartTab === 'price' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' : 'text-slate-500'}`}
-                                                >
-                                                    📈 價格趨勢圖
-                                                </button>
-                                                <button 
-                                                    onClick={() => setChartTab('match')}
-                                                    class={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${chartTab === 'match' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' : 'text-slate-500'}`}
-                                                >
-                                                    🎯 預測對照圖
-                                                </button>
+                            {/* ==========================================
+                                📈 2. 新增：前日昨收與當日市場交易詳細看板
+                                ========================================== */}
+                            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+                                <h3 class="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-850 pb-3">
+                                    <span>📊</span> 當日市場交易資訊
+                                </h3>
+
+                                {selectedStock.latestData ? (
+                                    <div class="space-y-4">
+                                        {/* 四宮格大盤數據欄（前日昨收、今日最高最低、成交總量） */}
+                                        <div class="grid grid-cols-2 gap-2.5">
+                                            <div class="bg-slate-950/60 p-3 rounded-2xl border border-slate-850/60">
+                                                <p class="text-[10px] text-slate-500 font-bold">前日收盤 (昨收)</p>
+                                                <p class="text-sm font-extrabold text-slate-300 mt-0.5 font-mono">${selectedStock.latestData.yesterdayClose}</p>
+                                            </div>
+                                            <div class="bg-slate-950/60 p-3 rounded-2xl border border-slate-850/60">
+                                                <p class="text-[10px] text-slate-500 font-bold">當日成交總量</p>
+                                                <p class="text-sm font-extrabold text-slate-300 mt-0.5 font-mono">{selectedStock.latestData.totalVolume || "未統計"}</p>
+                                            </div>
+                                            <div class="bg-slate-950/60 p-3 rounded-2xl border border-slate-850/60">
+                                                <p class="text-[10px] text-slate-500 font-bold">今日最高價</p>
+                                                <p class="text-sm font-extrabold text-red-400 mt-0.5 font-mono">${selectedStock.latestData.todayHigh}</p>
+                                            </div>
+                                            <div class="bg-slate-950/60 p-3 rounded-2xl border border-slate-850/60">
+                                                <p class="text-[10px] text-slate-500 font-bold">今日最低價</p>
+                                                <p class="text-sm font-extrabold text-emerald-400 mt-0.5 font-mono">${selectedStock.latestData.todayLow}</p>
                                             </div>
                                         </div>
 
-                                        {/* 圖表呈現區 */}
-                                        <div class="h-44 relative">
-                                            <canvas ref={chartRef}></canvas>
+                                        {/* 當日買賣力量對比 (內盤比 vs 外盤比) */}
+                                        <div class="space-y-1.5 pt-2 border-t border-slate-850">
+                                            <div class="flex justify-between text-[10px] font-bold text-slate-500">
+                                                <span>外盤 (主動買單) {selectedStock.latestData.buyRatio}%</span>
+                                                <span>內盤 (主動賣單) {selectedStock.latestData.sellRatio}%</span>
+                                            </div>
+                                            <div class="w-full bg-slate-950 h-2 rounded-full overflow-hidden flex">
+                                                <div style={{width: `${selectedStock.latestData.buyRatio}%`}} class="bg-red-500 h-full"></div>
+                                                <div style={{width: `${selectedStock.latestData.sellRatio}%`}} class="bg-emerald-500 h-full"></div>
+                                            </div>
                                         </div>
 
-                                        {chartTab === 'match' && (
-                                            <div class="flex justify-center items-center gap-4 pt-1 text-[10px] text-slate-400 border-t border-slate-950">
-                                                <span class="flex items-center gap-1">🟢 <strong class="text-emerald-400">綠色節點</strong>: 預測成功</span>
-                                                <span class="flex items-center gap-1">🔴 <strong class="text-rose-400">紅色節點</strong>: 預測失敗</span>
-                                                <span class="flex items-center gap-1">⚪ <strong class="text-slate-500">灰色節點</strong>: 未預測</span>
+                                        {/* 當日全部關鍵大單交易明細 (Block Trades) */}
+                                        <div class="space-y-2 pt-2 border-t border-slate-850">
+                                            <h4 class="text-[11px] font-bold text-slate-400 tracking-wider">今日市場大單交易明細</h4>
+                                            <div class="bg-slate-950/50 rounded-2xl border border-slate-850 overflow-hidden">
+                                                <table class="w-full text-left text-[11px]">
+                                                    <thead class="bg-slate-950 text-slate-500 font-bold border-b border-slate-850">
+                                                        <tr>
+                                                            <th class="py-2 px-3">成交時間</th>
+                                                            <th class="py-2 px-2 text-center">成交價格</th>
+                                                            <th class="py-2 px-2 text-center">成交量</th>
+                                                            <th class="py-2 px-3 text-right">交易屬性</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody class="divide-y divide-slate-850/80 font-mono">
+                                                        {selectedStock.latestData.marketTrades && selectedStock.latestData.marketTrades.map((trade, i) => (
+                                                            <tr key={i} class="hover:bg-slate-950/30">
+                                                                <td class="py-2 px-3 text-slate-400">{trade.time}</td>
+                                                                <td class="py-2 px-2 text-center text-slate-200 font-bold">${trade.price}</td>
+                                                                <td class="py-2 px-2 text-center text-slate-200">{trade.quantity}</td>
+                                                                <td class="py-2 px-3 text-right">
+                                                                    <span class={`font-extrabold px-1.5 py-0.5 rounded text-[9px] ${
+                                                                        trade.type === '買入' ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'
+                                                                    }`}>
+                                                                        {trade.type}
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
                                             </div>
-                                        )}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div class="bg-slate-950/40 border border-slate-850 border-dashed rounded-2xl p-6 text-center space-y-1">
+                                        <p class="text-xs font-semibold text-slate-500">尚無今日市場交易資訊</p>
+                                        <p class="text-[10px] text-slate-600">請返回清單並點選 🔄 刷新預測，自動透過 AI 檢索今日大單與昨收數據！</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 3. 雙標籤切換走勢圖表 */}
+                            {selectedStock.latestData && (
+                                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl space-y-3">
+                                    <div class="flex justify-between items-center border-b border-slate-850 pb-2">
+                                        <div class="flex gap-2">
+                                            <button 
+                                                onClick={() => setChartTab('price')}
+                                                class={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${chartTab === 'price' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' : 'text-slate-500'}`}
+                                            >
+                                                📈 價格趨勢圖
+                                            </button>
+                                            <button 
+                                                onClick={() => setChartTab('match')}
+                                                class={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${chartTab === 'match' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' : 'text-slate-500'}`}
+                                            >
+                                                🎯 預測對照圖
+                                            </button>
+                                        </div>
                                     </div>
 
-                                    {/* 基本面：AI 量化分析報告 */}
-                                    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
-                                        <h3 class="text-xs font-bold text-sky-400 flex items-center gap-1.5">
-                                            <span>📋</span> 聯網綜合量化報告
-                                        </h3>
-                                        <p class="text-xs text-slate-300 leading-relaxed text-justify">
-                                            {selectedStock.latestData.analysis}
-                                        </p>
+                                    {/* 圖表呈現區 */}
+                                    <div class="h-44 relative">
+                                        <canvas ref={chartRef}></canvas>
                                     </div>
+
+                                    {chartTab === 'match' && (
+                                        <div class="flex justify-center items-center gap-4 pt-1 text-[10px] text-slate-400 border-t border-slate-950">
+                                            <span class="flex items-center gap-1">🟢 <strong class="text-emerald-400">綠色節點</strong>: 預測成功</span>
+                                            <span class="flex items-center gap-1">🔴 <strong class="text-rose-400">紅色節點</strong>: 預測失敗</span>
+                                            <span class="flex items-center gap-1">⚪ <strong class="text-slate-500">灰色節點</strong>: 未預測</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* 4. 基本面：AI 量化分析報告 */}
+                            {selectedStock.latestData ? (
+                                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
+                                    <h3 class="text-xs font-bold text-sky-400 flex items-center gap-1.5">
+                                        <span>📋</span> 聯網綜合量化報告
+                                    </h3>
+                                    <p class="text-xs text-slate-300 leading-relaxed text-justify">
+                                        {selectedStock.latestData.analysis}
+                                    </p>
                                 </div>
                             ) : (
                                 <div class="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-4 animate-fadeIn">
@@ -916,7 +1329,7 @@
                                     <span class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-slate-800 border-t-sky-400"></span>
                                 </div>
                                 <h3 class="text-sm font-bold text-white">Gemini 聯網分析中...</h3>
-                                <p class="text-xs text-slate-500 leading-relaxed">正在網路上 Google 搜尋該股票最新價格、歷史走勢與新聞基本面...</p>
+                                <p class="text-xs text-slate-500 leading-relaxed">正在網路上 Google 搜尋該股票最新價格、歷史走勢、當日交易大單與昨收數據...</p>
                             </div>
                         </div>
                     )}
@@ -925,7 +1338,6 @@
                     {bulkUpdating && (
                         <div class="fixed inset-0 bg-slate-950/70 backdrop-blur-md flex items-center justify-center z-50 animate-fadeIn p-4">
                             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl max-w-sm w-full space-y-5">
-                                {/* 進度 Header */}
                                 <div class="text-center space-y-1.5">
                                     <div class="relative w-12 h-12 mx-auto flex items-center justify-center">
                                         <span class="absolute inline-block animate-ping rounded-full h-8 w-8 bg-indigo-500/30"></span>
@@ -936,7 +1348,6 @@
                                     <p class="text-xs text-slate-400">正在處理: <strong class="text-slate-200">{bulkProgress.activeName}</strong></p>
                                 </div>
 
-                                {/* 排隊進度條 */}
                                 <div class="w-full bg-slate-950 h-2.5 rounded-full p-[2px] border border-slate-850">
                                     <div 
                                         style={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%` }} 
@@ -944,10 +1355,10 @@
                                     ></div>
                                 </div>
 
-                                {/* 排隊明細列表 */}
                                 <div class="bg-slate-950/60 rounded-2xl border border-slate-850 max-h-48 overflow-y-auto custom-scrollbar p-3 space-y-2">
                                     {watchlist.map((stock) => {
                                         const status = bulkProgress.statusMap[stock.symbol];
+                                        if (status === undefined) return null;
                                         return (
                                             <div key={stock.symbol} class="flex justify-between items-center text-xs font-semibold py-1">
                                                 <span class="text-slate-300">{stock.symbol} ({stock.name})</span>
@@ -962,7 +1373,6 @@
                                     })}
                                 </div>
 
-                                {/* 手動取消按鈕 */}
                                 <button 
                                     onClick={() => {
                                         cancelBulkRef.current = true;
