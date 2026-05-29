@@ -39,7 +39,7 @@
         }
     </style>
 </head>
-<body class="text-slate-100 font-sans min-h-screen antialiased select-none pb-16">
+<body class="text-slate-100 font-sans min-h-screen antialiased select-none pb-24">
 
     <div id="root"></div>
 
@@ -135,7 +135,7 @@
                         { date: "2026-05-28", price: 1071.7 },
                         { date: "2026-05-29", price: 1083.5 }
                     ],
-                    analysis: "輝達在發表全新 Blackwell 晶片架構後，市場情緒極度亢奮，股價強勢噴發創下新高。然而短線乖離率過大，技術指標 RSI 已進入 82 超買區。儘管今日因分析師調高目標價而續漲 1.10%，但盤後已有部分獲利了結資金退場。預期明日走勢將面臨震盪回檔壓力，建議投資人靜待拉回，不宜過度追高。"
+                    analysis: "輝達在發表全新 Blackwell 晶片架構後，市場情緒極度亢奮，股價強勢噴發創下新高。然而短線乖離率過大，技術指標 RSI 已進入 82 超買區。儘管今日因分析師調高目標價而續漲 1.10%，但盤後已有部分獲利回吐資金退場。預期明日走勢將面臨震盪回檔壓力，建議投資人靜待拉回，不宜過度追高。"
                 } 
             }
         ];
@@ -149,7 +149,6 @@
         let appId = 'alpha-predict';
 
         try {
-            // 只有在系統變數存在且 Firebase SDK 載入成功時才啟用 Firebase 雲端同步
             if (typeof firebase !== 'undefined' && typeof __firebase_config !== 'undefined' && __firebase_config) {
                 const firebaseConfig = JSON.parse(__firebase_config);
                 if (firebaseConfig && firebaseConfig.apiKey) {
@@ -160,7 +159,7 @@
                 }
             }
         } catch (e) {
-            console.warn("[環境防爆] 偵測為獨立網頁環境，自動降級為本地資料持久化模式:", e);
+            console.warn("[環境防爆] 自動降級為本地資料持久化模式:", e);
         }
 
         if (typeof __app_id !== 'undefined' && __app_id) {
@@ -188,7 +187,13 @@
             const [onlyFavorites, setOnlyFavorites] = useState(false);
             const [draggedIdx, setDraggedIdx] = useState(null);
 
-            // 一鍵更新進度追蹤 State
+            // 備份匯入與匯出控制
+            const [showBackupBox, setShowBackupBox] = useState(false);
+            const [backupString, setBackupString] = useState('');
+            const [importString, setImportString] = useState('');
+            const exportTextareaRef = useRef(null);
+
+            // 【重磅升級】一鍵更新：改為背景非阻塞式進度追蹤
             const [bulkUpdating, setBulkUpdating] = useState(false);
             const [bulkProgress, setBulkProgress] = useState({
                 current: 0,
@@ -196,24 +201,31 @@
                 activeName: '',
                 statusMap: {} 
             });
+            const [showBulkProgressCard, setShowBulkProgressCard] = useState(false);
 
             const chartRef = useRef(null);
             const chartInstance = useRef(null);
             const cancelBulkRef = useRef(false);
 
             // ==========================================
-            // 🔒 2. 安全初始化與快取防丟失載入機制
+            // 🔒 2. 安全初始化與「格式自動更迭升級模組」
             // ==========================================
             useEffect(() => {
-                // 1. 先同步從本地 LocalStorage 載入，保證在 GitHub Pages 或是斷網時秒開不黑屏！
-                const localList = localStorage.getItem('alphapredict_watchlist_v4');
+                const localList = localStorage.getItem('alphapredict_watchlist_v5');
                 const localKey = localStorage.getItem('gemini_api_key');
                 
                 if (localList) {
                     try {
                         const parsed = JSON.parse(localList);
                         if (Array.isArray(parsed) && parsed.length > 0) {
-                            setWatchlist(parsed);
+                            // 【版本更迭相容模組】自動檢測並無痛填充缺少的欄位，避免舊版資料格式損毀！
+                            const upgradedList = parsed.map(item => ({
+                                ...item,
+                                isFavorite: item.isFavorite !== undefined ? item.isFavorite : false,
+                                predictionHistory: item.predictionHistory || {},
+                                latestData: item.latestData || null
+                            }));
+                            setWatchlist(upgradedList);
                         } else {
                             setWatchlist(DEFAULT_WATCHLIST);
                         }
@@ -222,7 +234,7 @@
                     }
                 } else {
                     setWatchlist(DEFAULT_WATCHLIST);
-                    localStorage.setItem('alphapredict_watchlist_v4', JSON.stringify(DEFAULT_WATCHLIST));
+                    localStorage.setItem('alphapredict_watchlist_v5', JSON.stringify(DEFAULT_WATCHLIST));
                 }
 
                 if (localKey) {
@@ -230,13 +242,11 @@
                     setShowKeyInput(false);
                 }
 
-                // 2. 如果不需要 Firebase 雲端模式 (GitHub Pages 下)，直接關閉同步讀取狀態
                 if (!useFirebase) {
                     setCloudSyncing(false);
                     return;
                 }
 
-                // 3. 在平台環境下執行雲端安全認證
                 const initAuth = async () => {
                     setCloudSyncing(true);
                     try {
@@ -246,7 +256,7 @@
                             await auth.signInAnonymously();
                         }
                     } catch (err) {
-                        console.error("[雲端防崩潰] 匿名認證失敗，降級為獨立本機運行模式:", err);
+                        console.error("[雲端防崩潰] 降級為獨立本機運行模式:", err);
                         setCloudSyncing(false);
                     }
                 };
@@ -259,13 +269,13 @@
             }, []);
 
             // ==========================================
-            // 📡 3. 雲端即時同步資料與本地快取同步
+            // 📡 3. 雲端與本地快取無縫即時備份
             // ==========================================
             useEffect(() => {
                 if (!useFirebase || !user) return; 
 
                 setCloudSyncing(true);
-                const docRef = db.doc(`artifacts/${appId}/users/${user.uid}/watchlist/user_list`);
+                const docRef = db.doc(`artifacts/${appId}/users/${user.uid}/watchlist/user_list_v5`);
                 
                 const unsubscribe = docRef.onSnapshot(
                     (docSnap) => {
@@ -275,11 +285,10 @@
                             if (cloudData.list) {
                                 const normalizedList = cloudData.list.map(item => ({
                                     ...item,
-                                    isFavorite: item.isFavorite || false
+                                    isFavorite: item.isFavorite !== undefined ? item.isFavorite : false
                                 }));
                                 setWatchlist(normalizedList);
-                                // 雙重儲存：雲端更新時立刻備份到本機 LocalStorage
-                                localStorage.setItem('alphapredict_watchlist_v4', JSON.stringify(normalizedList));
+                                localStorage.setItem('alphapredict_watchlist_v5', JSON.stringify(normalizedList));
 
                                 if (selectedStock) {
                                     const freshStock = normalizedList.find(s => s.symbol === selectedStock.symbol);
@@ -295,7 +304,7 @@
                             }
                         } else {
                             // 第一次使用，同步本地資料到雲端
-                            const currentList = JSON.parse(localStorage.getItem('alphapredict_watchlist_v4')) || DEFAULT_WATCHLIST;
+                            const currentList = JSON.parse(localStorage.getItem('alphapredict_watchlist_v5')) || DEFAULT_WATCHLIST;
                             const currentKey = localStorage.getItem('gemini_api_key') || '';
                             docRef.set({
                                 list: currentList,
@@ -305,7 +314,7 @@
                         setCloudSyncing(false);
                     },
                     (err) => {
-                        console.error("[雲端監聽錯誤] 無法取得遠端資料，維持本機資料顯示:", err);
+                        console.error("[雲端監聽錯誤] 維持本機資料顯示:", err);
                         setCloudSyncing(false);
                     }
                 );
@@ -314,25 +323,23 @@
             }, [user, selectedStock?.symbol]);
 
             // ==========================================
-            // 💾 4. 複合式寫入：永遠儲存本地，智慧上傳雲端
+            // 💾 4. 複合式寫入：儲存本地，安全上傳
             // ==========================================
             const saveData = async (newList, newKey) => {
-                // 1. 無論如何先寫入 LocalStorage，確保安全不丟失！
-                localStorage.setItem('alphapredict_watchlist_v4', JSON.stringify(newList));
+                localStorage.setItem('alphapredict_watchlist_v5', JSON.stringify(newList));
                 localStorage.setItem('gemini_api_key', newKey);
 
-                // 2. 如果啟用了雲端且登入成功，才非同步寫入資料庫
                 if (useFirebase && user) {
                     setCloudSyncing(true);
                     try {
-                        const docRef = db.doc(`artifacts/${appId}/users/${user.uid}/watchlist/user_list`);
+                        const docRef = db.doc(`artifacts/${appId}/users/${user.uid}/watchlist/user_list_v5`);
                         await docRef.set({
                             list: newList,
                             apiKey: newKey
                         });
                         setCloudSyncing(false);
                     } catch (err) {
-                        console.error("[雲端同步失敗] 已幫您將資料安全保留在手機本機中:", err);
+                        console.error("[雲端同步失敗] 已將資料安全保留在手機本機:", err);
                         setCloudSyncing(false);
                     }
                 }
@@ -377,38 +384,43 @@
                     return;
                 }
 
-                let updated = [...watchlist];
-                let addedCount = 0;
+                // 採用 React 函數式狀態更新，防範背景更新覆蓋！
+                setWatchlist(prev => {
+                    let updated = [...prev];
+                    let addedCount = 0;
 
-                symbols.forEach(sym => {
-                    if (!updated.some(s => s.symbol === sym)) {
-                        updated.push({
-                            symbol: sym,
-                            name: sym,
-                            isFavorite: false,
-                            predictionHistory: {},
-                            latestData: null
-                        });
-                        addedCount++;
+                    symbols.forEach(sym => {
+                        if (!updated.some(s => s.symbol === sym)) {
+                            updated.push({
+                                symbol: sym,
+                                name: sym,
+                                isFavorite: false,
+                                predictionHistory: {},
+                                latestData: null
+                            });
+                            addedCount++;
+                        }
+                    });
+
+                    if (addedCount > 0) {
+                        saveData(updated, apiKey);
+                        triggerToast(`成功新增 ${addedCount} 檔股票！`, 'success');
+                    } else {
+                        triggerToast('輸入的股票皆已在清單中。', 'info');
                     }
+                    return updated;
                 });
-
-                if (addedCount > 0) {
-                    setWatchlist(updated);
-                    saveData(updated, apiKey);
-                    setNewSymbol('');
-                    triggerToast(`成功新增 ${addedCount} 檔股票並備份！`, 'success');
-                } else {
-                    triggerToast('輸入的股票皆已在清單中。', 'info');
-                }
+                setNewSymbol('');
             };
 
             // 刪除觀察股票
             const handleRemoveStock = (sym, e) => {
                 e.stopPropagation(); 
-                const updated = watchlist.filter(s => s.symbol !== sym);
-                setWatchlist(updated);
-                saveData(updated, apiKey);
+                setWatchlist(prev => {
+                    const updated = prev.filter(s => s.symbol !== sym);
+                    saveData(updated, apiKey);
+                    return updated;
+                });
                 if (selectedStock && selectedStock.symbol === sym) {
                     setSelectedStock(null);
                     setCurrentView('dashboard');
@@ -419,16 +431,60 @@
             // 切換我的最愛標記
             const handleToggleFavorite = (sym, e) => {
                 e.stopPropagation();
-                const updated = watchlist.map(s => {
-                    if (s.symbol === sym) {
-                        const newFav = !s.isFavorite;
-                        triggerToast(newFav ? `已將 ${s.symbol} 加入最愛 ⭐` : `已取消 ${s.symbol} 最愛`, 'success');
-                        return { ...s, isFavorite: newFav };
-                    }
-                    return s;
+                setWatchlist(prev => {
+                    const updated = prev.map(s => {
+                        if (s.symbol === sym) {
+                            const newFav = !s.isFavorite;
+                            triggerToast(newFav ? `已將 ${s.symbol} 加入最愛 ⭐` : `已取消 ${s.symbol} 最愛`, 'success');
+                            return { ...s, isFavorite: newFav };
+                        }
+                        return s;
+                    });
+                    saveData(updated, apiKey);
+                    return updated;
                 });
-                setWatchlist(updated);
-                saveData(updated, apiKey);
+            };
+
+            // 📁 數據備份匯出與匯入轉移功能
+            const handleExportData = () => {
+                const packageData = {
+                    apiKey: apiKey,
+                    watchlist: watchlist
+                };
+                const base64Str = btoa(encodeURIComponent(JSON.stringify(packageData)));
+                setBackupString(base64Str);
+                triggerToast('備份代碼已產生！請複製下方框內文字。', 'success');
+            };
+
+            const handleCopyBackup = () => {
+                if (exportTextareaRef.current) {
+                    exportTextareaRef.current.select();
+                    document.execCommand('copy');
+                    triggerToast('已複製備份代碼！可以貼到 LINE 傳給新手機囉。', 'success');
+                }
+            };
+
+            const handleImportData = () => {
+                if (!importString.trim()) {
+                    triggerToast('請先貼入備份代碼！', 'error');
+                    return;
+                }
+                try {
+                    const decoded = JSON.parse(decodeURIComponent(atob(importString.trim())));
+                    if (decoded && Array.isArray(decoded.watchlist)) {
+                        setWatchlist(decoded.watchlist);
+                        setApiKey(decoded.apiKey || '');
+                        setShowKeyInput(!(decoded.apiKey || '').trim());
+                        saveData(decoded.watchlist, decoded.apiKey || '');
+                        setImportString('');
+                        setShowBackupBox(false);
+                        triggerToast('🎉 數據與歷史紀錄已同步完畢！', 'success');
+                    } else {
+                        throw new Error();
+                    }
+                } catch (e) {
+                    triggerToast('匯入失敗！請確認代碼是否完整、無多餘空白。', 'error');
+                }
             };
 
             // 拖曳與排序邏輯 (電腦端滑鼠拖曳)
@@ -615,33 +671,8 @@
                 }
             }, [currentView, selectedStock, chartTab]);
 
-            // 智慧過濾 JSON 提取器
-            const cleanAndExtractJson = (text) => {
-                let temp = text.trim();
-                const backtick = '`';
-                const threeTicks = backtick + backtick + backtick;
-                const startTag = threeTicks + 'json';
-                const endTag = threeTicks;
-
-                let startIdx = temp.indexOf(startTag);
-                if (startIdx !== -1) {
-                    let endIdx = temp.indexOf(endTag, startIdx + startTag.length);
-                    if (endIdx !== -1) {
-                        return temp.substring(startIdx + startTag.length, endIdx).trim();
-                    }
-                }
-
-                const firstBrace = temp.indexOf('{');
-                const lastBrace = temp.lastIndexOf('}');
-                if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-                    return temp.substring(firstBrace, lastBrace + 1).trim();
-                }
-
-                return temp;
-            };
-
-            // 單股更新底層核心方法 - 全面融入「昨收」、「成交大單」與「外內盤量能分布」
-            const fetchSingleStockUpdate = async (stockItem, currentKey, listState) => {
+            // 單股更新核心方法 (回傳不含 React 狀態綁定的最新乾淨資料物件)
+            const fetchSingleStockUpdate = async (stockItem, currentKey) => {
                 const todayStr = new Date().toISOString().split('T')[0];
                 const ticks = String.fromCharCode(96) + String.fromCharCode(96) + String.fromCharCode(96);
 
@@ -722,41 +753,63 @@
                 }
 
                 const cleanedJson = cleanAndExtractJson(rawText);
-                const parsedResult = JSON.parse(cleanedJson);
-
-                let yesterdayPrediction = '-';
-                if (stockItem.latestData?.prediction) {
-                    yesterdayPrediction = stockItem.latestData.prediction;
-                }
-
-                let isCorrect = undefined;
-                if (yesterdayPrediction !== '-') {
-                    const actual = parsedResult.todayActual; 
-                    if (actual === '平') {
-                        isCorrect = true; 
-                    } else {
-                        isCorrect = (yesterdayPrediction === actual);
-                    }
-                }
-
-                return {
-                    ...stockItem,
-                    name: parsedResult.name || stockItem.name,
-                    latestData: parsedResult,
-                    predictionHistory: {
-                        ...stockItem.predictionHistory,
-                        [todayStr]: {
-                            yesterdayPrediction: yesterdayPrediction,
-                            todayActual: parsedResult.todayActual + " (" + parsedResult.todayChangePercent + ")",
-                            tomorrowPrediction: parsedResult.prediction + " (" + parsedResult.upProbability + "%)",
-                            isCorrect: isCorrect, 
-                            rawData: parsedResult
-                        }
-                    }
-                };
+                return JSON.parse(cleanedJson);
             };
 
-            // 手動單股更新
+            // ==========================================
+            // 🛡️ 5. 超強防競態寫入（防止背景更新覆蓋使用者即時操作）
+            // ==========================================
+            const applyStockUpdateToState = (targetSymbol, parsedResult) => {
+                const todayStr = new Date().toISOString().split('T')[0];
+
+                setWatchlist(prev => {
+                    const freshStock = prev.find(s => s.symbol === targetSymbol);
+                    if (!freshStock) return prev; // 若股票在中途被刪除，則不執行寫入
+
+                    let yesterdayPrediction = '-';
+                    if (freshStock.latestData?.prediction) {
+                        yesterdayPrediction = freshStock.latestData.prediction;
+                    }
+
+                    let isCorrect = undefined;
+                    if (yesterdayPrediction !== '-') {
+                        const actual = parsedResult.todayActual; 
+                        if (actual === '平') {
+                            isCorrect = true; 
+                        } else {
+                            isCorrect = (yesterdayPrediction === actual);
+                        }
+                    }
+
+                    const updatedStock = {
+                        ...freshStock, // 完美保留使用者在背景按下的 favors、排序等資訊！
+                        name: parsedResult.name || freshStock.name,
+                        latestData: parsedResult,
+                        predictionHistory: {
+                            ...freshStock.predictionHistory,
+                            [todayStr]: {
+                                yesterdayPrediction: yesterdayPrediction,
+                                todayActual: parsedResult.todayActual + " (" + parsedResult.todayChangePercent + ")",
+                                tomorrowPrediction: parsedResult.prediction + " (" + parsedResult.upProbability + "%)",
+                                isCorrect: isCorrect, 
+                                rawData: parsedResult
+                            }
+                        }
+                    };
+
+                    const updatedList = prev.map(s => s.symbol === targetSymbol ? updatedStock : s);
+                    saveData(updatedList, apiKey);
+
+                    // 如果使用者正停留在這檔股票的詳細頁，即時刷新詳細頁面數據
+                    if (selectedStock && selectedStock.symbol === targetSymbol) {
+                        setSelectedStock(updatedStock);
+                    }
+
+                    return updatedList;
+                });
+            };
+
+            // 手動單股獨立更新
             const handleUpdateStock = async (stockItem) => {
                 if (!apiKey.trim()) {
                     triggerToast('請先設定您的 Gemini API Key！', 'error');
@@ -768,17 +821,9 @@
                 setError('');
 
                 try {
-                    const updatedStock = await fetchSingleStockUpdate(stockItem, apiKey, watchlist);
-                    
-                    const updatedWatchlist = watchlist.map(s => s.symbol === stockItem.symbol ? updatedStock : s);
-                    setWatchlist(updatedWatchlist);
-                    await saveData(updatedWatchlist, apiKey);
-                    
-                    if (selectedStock && selectedStock.symbol === stockItem.symbol) {
-                        setSelectedStock(updatedStock);
-                    }
-
-                    triggerToast(`${updatedStock.name} 更新成功！`, 'success');
+                    const parsedResult = await fetchSingleStockUpdate(stockItem, apiKey);
+                    applyStockUpdateToState(stockItem.symbol, parsedResult);
+                    triggerToast(`${stockItem.symbol} 更新成功！`, 'success');
                 } catch (err) {
                     console.error('更新失敗:', err);
                     setError(err.message || '連線 API 失敗，請重試。');
@@ -788,7 +833,9 @@
                 }
             };
 
-            // 一鍵更新所有觀察對象
+            // ==========================================
+            // 🔄 6. 【黑科技】全新背景非阻塞式「一鍵更新」機制
+            // ==========================================
             const handleUpdateAllWatchlist = async () => {
                 if (!apiKey.trim()) {
                     triggerToast('請先設定您的 Gemini API Key！', 'error');
@@ -803,8 +850,10 @@
                     return;
                 }
 
+                // 啟動背景狀態
                 cancelBulkRef.current = false;
                 setBulkUpdating(true);
+                setShowBulkProgressCard(true); // 展開浮動小面板
                 setError('');
                 
                 const initialStatusMap = {};
@@ -819,11 +868,10 @@
                     statusMap: initialStatusMap
                 });
 
-                let tempWatchlist = [...watchlist];
-
+                // 開始背景隊列更新 (完全不阻擋使用者操作畫面！)
                 for (let i = 0; i < targetList.length; i++) {
                     if (cancelBulkRef.current) {
-                        triggerToast('一鍵更新已手動取消！', 'info');
+                        triggerToast('背景一鍵更新已取消！已跑完資料安全存檔。', 'info');
                         break;
                     }
 
@@ -837,15 +885,11 @@
                     }));
 
                     try {
-                        const updatedStock = await fetchSingleStockUpdate(currentStock, apiKey, tempWatchlist);
+                        // 背景連線 Gemini API
+                        const parsedResult = await fetchSingleStockUpdate(currentStock, apiKey);
                         
-                        tempWatchlist = tempWatchlist.map(s => s.symbol === currentStock.symbol ? updatedStock : s);
-                        setWatchlist(tempWatchlist);
-                        await saveData(tempWatchlist, apiKey);
-
-                        if (selectedStock && selectedStock.symbol === currentStock.symbol) {
-                            setSelectedStock(updatedStock);
-                        }
+                        // 防競態寫入狀態
+                        applyStockUpdateToState(currentStock.symbol, parsedResult);
 
                         setBulkProgress(prev => ({
                             ...prev,
@@ -860,13 +904,18 @@
                         }));
                     }
 
+                    // 間隔 2.5 秒，避免觸發 API Rate limit
                     if (i < targetList.length - 1 && !cancelBulkRef.current) {
                         await new Promise(resolve => setTimeout(resolve, 2500));
                     }
                 }
 
                 setBulkUpdating(false);
-                triggerToast('一鍵更新任務完成！', 'success');
+                // 3秒後自動收合背景小面板
+                setTimeout(() => {
+                    setShowBulkProgressCard(false);
+                }, 3000);
+                triggerToast('一鍵更新任務全部完成！', 'success');
             };
 
             const getDisplayData = (stock) => {
@@ -901,7 +950,7 @@
                                     </span>
                                 )
                             ) : (
-                                <span class="flex items-center gap-1 text-slate-400 font-medium" title="本地儲存保護，已不受網頁刷新影響！">
+                                <span class="flex items-center gap-1 text-slate-400 font-medium" title="本地安全存檔，重整、版本更迭均不丟失！">
                                     💾 本地持久儲存
                                 </span>
                             )}
@@ -1105,19 +1154,19 @@
                                                             {/* 拖曳排序與操作 */}
                                                             <td class="py-3 px-2 text-right" onClick={(e) => e.stopPropagation()}>
                                                                 <div class="flex items-center justify-end gap-1">
-                                                                    {/* 排序控制鍵 (▲/▼) - 手機觸控排序 */}
+                                                                    {/* 排序控制鍵 */}
                                                                     <div class="flex flex-col gap-0.5 mr-1.5">
                                                                         <button 
                                                                             onClick={(e) => moveUp(index, e)}
                                                                             disabled={index === 0}
-                                                                            class="text-[9px] text-slate-500 hover:text-slate-300 disabled:opacity-20 font-bold p-0.5 bg-slate-950/40 rounded"
+                                                                            class="text-[9px] text-slate-500 hover:text-slate-300 disabled:opacity-20 font-bold p-0.5 bg-slate-950/40 rounded animate-pulse"
                                                                         >
                                                                             ▲
                                                                         </button>
                                                                         <button 
                                                                             onClick={(e) => moveDown(index, e)}
                                                                             disabled={index === watchlist.length - 1}
-                                                                            class="text-[9px] text-slate-500 hover:text-slate-300 disabled:opacity-20 font-bold p-0.5 bg-slate-950/40 rounded"
+                                                                            class="text-[9px] text-slate-500 hover:text-slate-300 disabled:opacity-20 font-bold p-0.5 bg-slate-950/40 rounded animate-pulse"
                                                                         >
                                                                             ▼
                                                                         </button>
@@ -1149,12 +1198,75 @@
                                     </table>
                                 </div>
                             </div>
+
+                            {/* 📁 備份與匯出轉移看板 */}
+                            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl">
+                                <button 
+                                    onClick={() => setShowBackupBox(!showBackupBox)}
+                                    class="w-full flex justify-between items-center text-xs font-black text-slate-400 uppercase tracking-wider focus:outline-none cursor-pointer"
+                                >
+                                    <span class="flex items-center gap-1.5">📁 跨裝置數據轉移 (備份與匯入)</span>
+                                    <span>{showBackupBox ? "▲ 收合" : "▼ 展開"}</span>
+                                </button>
+
+                                {showBackupBox && (
+                                    <div class="mt-4 pt-3 border-t border-slate-850 space-y-4 animate-fadeIn">
+                                        <p class="text-[10px] text-slate-500 leading-relaxed">
+                                            由於在 GitHub 上 App 是安全獨立存於您手機的瀏覽器中。您可以使用此處的「備份代碼」，輕鬆將所有觀察股票、API 金鑰、我的最愛與預測紀錄 100% 複製傳送到任何全新手機或電腦！
+                                        </p>
+
+                                        <div class="space-y-2">
+                                            <div class="flex justify-between items-center">
+                                                <h4 class="text-xs font-bold text-slate-300">1. 從此裝置備份 (匯出)</h4>
+                                                <button 
+                                                    onClick={handleExportData}
+                                                    class="px-3 py-1 bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+                                                >
+                                                    產生備份代碼
+                                                </button>
+                                            </div>
+                                            {backupString && (
+                                                <div class="space-y-1.5 animate-fadeIn">
+                                                    <textarea 
+                                                        ref={exportTextareaRef}
+                                                        readOnly
+                                                        value={backupString}
+                                                        class="w-full h-16 bg-slate-950 border border-slate-800 rounded-xl p-2 text-[9px] font-mono text-slate-400 focus:outline-none"
+                                                    />
+                                                    <button 
+                                                        onClick={handleCopyBackup}
+                                                        class="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+                                                    >
+                                                        📋 複製備份代碼
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div class="space-y-2 pt-2 border-t border-slate-850/50">
+                                            <h4 class="text-xs font-bold text-slate-300">2. 匯入至此裝置 (還原)</h4>
+                                            <textarea 
+                                                placeholder="請在此處貼上舊裝置產生的整串備份代碼..." 
+                                                value={importString}
+                                                onChange={(e) => setImportString(e.target.value)}
+                                                class="w-full h-16 bg-slate-950 border border-slate-800 rounded-xl p-2 text-[10px] font-mono text-slate-200 placeholder-slate-700 focus:outline-none"
+                                            />
+                                            <button 
+                                                onClick={handleImportData}
+                                                class="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+                                            >
+                                                📥 確認匯入還原
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
 
                     {/* 詳細預測結果與市場明細畫面 */}
                     {currentView === 'detail' && selectedStock && (
-                        <div class="space-y-4 font-medium">
+                        <div class="space-y-4">
                             {/* 返回按鈕 */}
                             <button 
                                 onClick={() => {
@@ -1196,7 +1308,7 @@
 
                                 {selectedStock.latestData ? (
                                     <div class="space-y-4">
-                                        {/* 大字成交價格與台股風格昨收比較 */}
+                                        {/* 大字成交價格與昨收比較 */}
                                         <div class="flex items-baseline gap-2 pt-1">
                                             <span class="text-3xl font-black text-white font-mono">${selectedStock.latestData.currentPrice}</span>
                                             {selectedStock.latestData.yesterdayClose && (
@@ -1235,7 +1347,7 @@
                                 )}
                             </div>
 
-                            {/* 2. 當日市場交易詳細看板 (內含前日收盤昨收對照與大單細節) */}
+                            {/* 2. 當日市場交易詳細看板 */}
                             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 animate-fadeIn">
                                 <h3 class="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-850 pb-3">
                                     <span>📊</span> 當日市場交易資訊
@@ -1392,56 +1504,78 @@
                         </div>
                     )}
 
-                    {/* 【進度看板 2】一鍵更新批次處理遮罩面板 */}
-                    {bulkUpdating && (
-                        <div class="fixed inset-0 bg-slate-950/70 backdrop-blur-md flex items-center justify-center z-50 animate-fadeIn p-4">
-                            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl max-w-sm w-full space-y-5">
-                                <div class="text-center space-y-1.5">
-                                    <div class="relative w-12 h-12 mx-auto flex items-center justify-center">
-                                        <span class="absolute inline-block animate-ping rounded-full h-8 w-8 bg-indigo-500/30"></span>
-                                        <span class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-slate-800 border-t-indigo-400"></span>
-                                    </div>
-                                    <h3 class="text-base font-black text-white">正在執行一鍵更新</h3>
-                                    <p class="text-xs text-indigo-400 font-semibold font-mono">進度: {bulkProgress.current} / {bulkProgress.total} 檔</p>
-                                    <p class="text-xs text-slate-400">正在處理: <strong class="text-slate-200">{bulkProgress.activeName}</strong></p>
+                    {/* ==========================================
+                        🚀 【背景非阻塞進度看板】全新 floating 懸浮小麵板
+                        ========================================== */}
+                    {showBulkProgressCard && (
+                        <div class="fixed bottom-4 right-4 left-4 md:left-auto md:w-80 bg-slate-900 border-2 border-indigo-500/40 rounded-2xl shadow-2xl p-4 z-40 animate-fadeIn space-y-3">
+                            <div class="flex justify-between items-center">
+                                <div class="flex items-center gap-1.5">
+                                    <span class="inline-block h-2 w-2 rounded-full bg-indigo-400 animate-ping"></span>
+                                    <h4 class="text-xs font-black text-white">背景一鍵更新中</h4>
                                 </div>
+                                <button 
+                                    onClick={() => setShowBulkProgressCard(false)}
+                                    class="text-[10px] text-slate-500 hover:text-slate-300 font-bold px-1.5 py-0.5 bg-slate-950/40 rounded"
+                                >
+                                    隱藏 ✕
+                                </button>
+                            </div>
 
-                                <div class="w-full bg-slate-950 h-2.5 rounded-full p-[2px] border border-slate-850">
+                            <div class="space-y-1">
+                                <p class="text-[11px] text-slate-400 font-semibold flex justify-between">
+                                    <span>正在更新: <strong class="text-slate-200">{bulkProgress.activeName}</strong></span>
+                                    <span class="font-mono text-indigo-400">{bulkProgress.current} / {bulkProgress.total}</span>
+                                </p>
+                                <div class="w-full bg-slate-950 h-2 rounded-full p-[1px] border border-slate-850">
                                     <div 
                                         style={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%` }} 
                                         class="bg-gradient-to-r from-sky-400 to-indigo-500 h-full rounded-full transition-all duration-300"
                                     ></div>
                                 </div>
+                            </div>
 
-                                <div class="bg-slate-950/60 rounded-2xl border border-slate-850 max-h-48 overflow-y-auto custom-scrollbar p-3 space-y-2">
-                                    {watchlist.map((stock) => {
-                                        const status = bulkProgress.statusMap[stock.symbol];
-                                        if (status === undefined) return null;
-                                        return (
-                                            <div key={stock.symbol} class="flex justify-between items-center text-xs font-semibold py-1">
-                                                <span class="text-slate-300">{stock.symbol} ({stock.name})</span>
-                                                <span>
-                                                    {status === 'waiting' && <span class="text-slate-500 flex items-center gap-1">等待中 ⏳</span>}
-                                                    {status === 'updating' && <span class="text-sky-400 animate-pulse flex items-center gap-1">分析中 ⚙️</span>}
-                                                    {status === 'success' && <span class="text-emerald-400 flex items-center gap-1">成功 ✅</span>}
-                                                    {status === 'failed' && <span class="text-rose-500 flex items-center gap-1">失敗 ❌</span>}
-                                                </span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                            {/* 精簡狀態明細 */}
+                            <div class="max-h-24 overflow-y-auto custom-scrollbar bg-slate-950/40 rounded-xl border border-slate-850 p-2 space-y-1 select-none">
+                                {watchlist.map((stock) => {
+                                    const status = bulkProgress.statusMap[stock.symbol];
+                                    if (status === undefined) return null;
+                                    return (
+                                        <div key={stock.symbol} class="flex justify-between items-center text-[9px] font-semibold">
+                                            <span class="text-slate-400 truncate max-w-[120px]">{stock.symbol} ({stock.name})</span>
+                                            <span>
+                                                {status === 'waiting' && <span class="text-slate-600">等待 ⏳</span>}
+                                                {status === 'updating' && <span class="text-sky-400 animate-pulse">分析 ⚙️</span>}
+                                                {status === 'success' && <span class="text-emerald-400">成功 ✅</span>}
+                                                {status === 'failed' && <span class="text-rose-500">失敗 ❌</span>}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
 
+                            {bulkUpdating && (
                                 <button 
                                     onClick={() => {
                                         cancelBulkRef.current = true;
-                                        triggerToast('正在發送取消請求...', 'info');
+                                        triggerToast('正在取消背景任務...', 'info');
                                     }}
-                                    class="w-full py-2.5 bg-slate-800 hover:bg-red-950 text-slate-300 hover:text-red-300 font-bold rounded-xl text-xs transition-all cursor-pointer"
+                                    class="w-full py-1.5 bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-300 font-bold rounded-lg text-[10px] transition-all cursor-pointer"
                                 >
                                     🛑 取消更新任務
                                 </button>
-                            </div>
+                            )}
                         </div>
+                    )}
+
+                    {/* 當更新正在背景跑，但使用者關閉了小面板時，提供一個小浮球提示，點擊可重開小面板 */}
+                    {bulkUpdating && !showBulkProgressCard && (
+                        <button 
+                            onClick={() => setShowBulkProgressCard(true)}
+                            class="fixed bottom-4 right-4 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold p-3 rounded-full shadow-2xl z-40 animate-bounce flex items-center gap-1 text-xs cursor-pointer"
+                        >
+                            🔄 <span>更新中 ({bulkProgress.current}/{bulkProgress.total})</span>
+                        </button>
                     )}
 
                     {/* 錯誤展示 */}
