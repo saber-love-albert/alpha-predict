@@ -55,8 +55,18 @@
             const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'detail'
             const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
 
+            // 一鍵更新進度追蹤 State
+            const [bulkUpdating, setBulkUpdating] = useState(false);
+            const [bulkProgress, setBulkProgress] = useState({
+                current: 0,
+                total: 0,
+                activeName: '',
+                statusMap: {} // { symbol: 'waiting' | 'updating' | 'success' | 'failed' }
+            });
+
             const chartRef = useRef(null);
             const chartInstance = useRef(null);
+            const cancelBulkRef = useRef(false);
 
             // 1. 初始化資料
             useEffect(() => {
@@ -207,17 +217,8 @@
                 return temp;
             };
 
-            // 呼叫 Gemini 進行單股預測更新
-            const handleUpdateStock = async (stockItem) => {
-                if (!apiKey.trim()) {
-                    triggerToast('請先設定您的 Gemini API Key！', 'error');
-                    setShowKeyInput(true);
-                    return;
-                }
-
-                setLoading(true);
-                setError('');
-
+            // 單股更新底層核心方法 (回傳更新後的 Stock 物件，不影響外部 State)
+            const fetchSingleStockUpdate = async (stockItem, currentKey, listState) => {
                 const todayStr = new Date().toISOString().split('T')[0];
 
                 const prompt = `
@@ -272,51 +273,62 @@
                     }
                 };
 
-                try {
-                    const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
-                    
-                    const payload = {
-                        contents: [{ parts: [{ text: prompt }] }],
-                        tools: [{ google_search: {} }]
-                    };
+                const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${currentKey.trim()}`;
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    tools: [{ google_search: {} }]
+                };
 
-                    const result = await executeWithRetry(apiEndpoint, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
+                const result = await executeWithRetry(apiEndpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
 
-                    const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if (!rawText) {
-                        throw new Error('AI 未能返回數據，請重新嘗試更新。');
-                    }
+                const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!rawText) {
+                    throw new Error('AI 未能返回數據');
+                }
 
-                    const cleanedJson = cleanAndExtractJson(rawText);
-                    const parsedResult = JSON.parse(cleanedJson);
+                const cleanedJson = cleanAndExtractJson(rawText);
+                const parsedResult = JSON.parse(cleanedJson);
 
-                    // 智慧儲存邏輯：
-                    // 在進行今日更新前，如果昨日已經有做出「明日預測」，它就成了「昨日預測」！
-                    // 我們需要將之前的預測，保留到昨日預測欄位中
-                    let yesterdayPrediction = '-';
-                    if (stockItem.latestData?.prediction) {
-                        yesterdayPrediction = stockItem.latestData.prediction;
-                    }
+                // 傳入最新狀態避免多股批次更新時拿到的歷史資料被舊 State 覆蓋
+                let yesterdayPrediction = '-';
+                if (stockItem.latestData?.prediction) {
+                    yesterdayPrediction = stockItem.latestData.prediction;
+                }
 
-                    const updatedStock = {
-                        ...stockItem,
-                        name: parsedResult.name || stockItem.name,
-                        latestData: parsedResult,
-                        predictionHistory: {
-                            ...stockItem.predictionHistory,
-                            [todayStr]: {
-                                yesterdayPrediction: yesterdayPrediction,
-                                todayActual: parsedResult.todayActual + " (" + parsedResult.todayChangePercent + ")",
-                                tomorrowPrediction: parsedResult.prediction + " (" + parsedResult.upProbability + "%)",
-                                rawData: parsedResult
-                            }
+                return {
+                    ...stockItem,
+                    name: parsedResult.name || stockItem.name,
+                    latestData: parsedResult,
+                    predictionHistory: {
+                        ...stockItem.predictionHistory,
+                        [todayStr]: {
+                            yesterdayPrediction: yesterdayPrediction,
+                            todayActual: parsedResult.todayActual + " (" + parsedResult.todayChangePercent + ")",
+                            tomorrowPrediction: parsedResult.prediction + " (" + parsedResult.upProbability + "%)",
+                            rawData: parsedResult
                         }
-                    };
+                    }
+                };
+            };
 
+            // 【主功能 1】手動點擊單股更新
+            const handleUpdateStock = async (stockItem) => {
+                if (!apiKey.trim()) {
+                    triggerToast('請先設定您的 Gemini API Key！', 'error');
+                    setShowKeyInput(true);
+                    return;
+                }
+
+                setLoading(true);
+                setError('');
+
+                try {
+                    const updatedStock = await fetchSingleStockUpdate(stockItem, apiKey, watchlist);
+                    
                     const updatedWatchlist = watchlist.map(s => s.symbol === stockItem.symbol ? updatedStock : s);
                     setWatchlist(updatedWatchlist);
                     localStorage.setItem('alphapredict_watchlist', JSON.stringify(updatedWatchlist));
@@ -326,7 +338,6 @@
                     }
 
                     triggerToast(`${updatedStock.name} 更新成功！`, 'success');
-
                 } catch (err) {
                     console.error('更新失敗:', err);
                     setError(err.message || '連線 API 失敗，請重試。');
@@ -334,6 +345,103 @@
                 } finally {
                     setLoading(false);
                 }
+            };
+
+            // 【主功能 2】強大的一鍵更新全部標的 (批次排隊順序處理機制)
+            const handleUpdateAllWatchlist = async () => {
+                if (!apiKey.trim()) {
+                    triggerToast('請先設定您的 Gemini API Key！', 'error');
+                    setShowKeyInput(true);
+                    return;
+                }
+
+                if (watchlist.length === 0) {
+                    triggerToast('觀察清單中目前沒有股票！', 'error');
+                    return;
+                }
+
+                // 初始化進度 State
+                cancelBulkRef.current = false;
+                setBulkUpdating(true);
+                setError('');
+                
+                const initialStatusMap = {};
+                watchlist.forEach(s => {
+                    initialStatusMap[s.symbol] = 'waiting';
+                });
+
+                setBulkProgress({
+                    current: 0,
+                    total: watchlist.length,
+                    activeName: watchlist[0].name,
+                    statusMap: initialStatusMap
+                });
+
+                // 使用一個暫存清單在迴圈中動態累計狀態，確保資料讀寫的即時性
+                let tempWatchlist = [...watchlist];
+
+                for (let i = 0; i < watchlist.length; i++) {
+                    if (cancelBulkRef.current) {
+                        triggerToast('一鍵更新已手動取消！', 'info');
+                        break;
+                    }
+
+                    const currentStock = watchlist[i];
+
+                    // 更新進度狀態為進行中
+                    setBulkProgress(prev => ({
+                        ...prev,
+                        current: i + 1,
+                        activeName: currentStock.name,
+                        statusMap: {
+                            ...prev.statusMap,
+                            [currentStock.symbol]: 'updating'
+                        }
+                    }));
+
+                    try {
+                        // 執行單個預測請求
+                        const updatedStock = await fetchSingleStockUpdate(currentStock, apiKey, tempWatchlist);
+                        
+                        // 動態寫入暫存清單與 LocalStorage
+                        tempWatchlist = tempWatchlist.map(s => s.symbol === currentStock.symbol ? updatedStock : s);
+                        setWatchlist(tempWatchlist);
+                        localStorage.setItem('alphapredict_watchlist', JSON.stringify(tempWatchlist));
+
+                        // 同步更新詳情狀態 (如果使用者正在點擊詳情檢視中)
+                        if (selectedStock && selectedStock.symbol === currentStock.symbol) {
+                            setSelectedStock(updatedStock);
+                        }
+
+                        // 標記成功
+                        setBulkProgress(prev => ({
+                            ...prev,
+                            statusMap: {
+                                ...prev.statusMap,
+                                [currentStock.symbol]: 'success'
+                            }
+                        }));
+
+                    } catch (err) {
+                        console.error(`更新 ${currentStock.symbol} 失敗:`, err);
+                        // 標記失敗，但不中斷其餘股票的排隊更新
+                        setBulkProgress(prev => ({
+                            ...prev,
+                            statusMap: {
+                                ...prev.statusMap,
+                                [currentStock.symbol]: 'failed'
+                            }
+                        }));
+                    }
+
+                    // 每檔股票間隔 2.5 秒緩衝時間，防範高頻請求 API 限流
+                    if (i < watchlist.length - 1 && !cancelBulkRef.current) {
+                        await new Promise(resolve => setTimeout(resolve, 2500));
+                    }
+                }
+
+                setBulkUpdating(false);
+                triggerToast('一鍵更新任務完成！', 'success');
             };
 
             const getDisplayData = (stock) => {
@@ -409,28 +517,39 @@
                     {/* 主畫面：儀表板與觀察名單 */}
                     {currentView === 'dashboard' && (
                         <div class="space-y-4">
-                            {/* 新增股票輸入框 */}
-                            <form onSubmit={handleAddStock} class="bg-slate-900/60 border border-slate-800 p-3 rounded-2xl flex gap-2 items-center">
-                                <input 
-                                    type="text" 
-                                    placeholder="新增標的：例如 NVDA 或 2330.TW" 
-                                    value={newSymbol}
-                                    onChange={(e) => setNewSymbol(e.target.value)}
-                                    class="flex-1 bg-transparent px-3 py-2 text-xs text-slate-200 focus:outline-none placeholder-slate-600 uppercase font-bold"
-                                />
+                            {/* 新增股票與一鍵更新按鈕欄 */}
+                            <div class="flex flex-col gap-3">
+                                <form onSubmit={handleAddStock} class="bg-slate-900/60 border border-slate-800 p-3 rounded-2xl flex gap-2 items-center flex-1">
+                                    <input 
+                                        type="text" 
+                                        placeholder="新增標的：例如 NVDA 或 2330.TW" 
+                                        value={newSymbol}
+                                        onChange={(e) => setNewSymbol(e.target.value)}
+                                        class="flex-1 bg-transparent px-3 py-2 text-xs text-slate-200 focus:outline-none placeholder-slate-600 uppercase font-bold"
+                                    />
+                                    <button 
+                                        type="submit" 
+                                        class="bg-indigo-600/80 hover:bg-indigo-600 text-white font-bold px-4 py-2 rounded-xl text-xs transition-all flex items-center gap-1 cursor-pointer"
+                                    >
+                                        <span>➕</span> 新增
+                                    </button>
+                                </form>
+
+                                {/* 一鍵更新全部標的按鈕 */}
                                 <button 
-                                    type="submit" 
-                                    class="bg-indigo-600/80 hover:bg-indigo-600 text-white font-bold px-4 py-2 rounded-xl text-xs transition-all flex items-center gap-1 cursor-pointer"
+                                    onClick={handleUpdateAllWatchlist}
+                                    disabled={loading || bulkUpdating}
+                                    class="w-full bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 text-white font-bold py-3 px-4 rounded-2xl text-xs transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.99]"
                                 >
-                                    <span>➕</span> 新增
+                                    <span>🔄</span> 一鍵更新所有觀察對象
                                 </button>
-                            </form>
+                            </div>
 
                             {/* 觀察對象綜合對照表 */}
                             <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl">
                                 <div class="p-4 border-b border-slate-800 flex justify-between items-center">
                                     <h3 class="text-xs font-black text-slate-400 uppercase tracking-wider">📊 每日觀察對稱儀表板</h3>
-                                    {loading && (
+                                    {loading && !bulkUpdating && (
                                         <span class="inline-block animate-spin rounded-full h-3.5 w-3.5 border-2 border-slate-700 border-t-white"></span>
                                     )}
                                 </div>
@@ -498,8 +617,8 @@
                                                             <div class="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                                                                 <button 
                                                                     onClick={() => handleUpdateStock(stock)}
-                                                                    disabled={loading}
-                                                                    class="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sky-400 transition-all cursor-pointer"
+                                                                    disabled={loading || bulkUpdating}
+                                                                    class="p-1.5 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-900 rounded-lg text-sky-400 transition-all cursor-pointer"
                                                                     title="更新預測"
                                                                 >
                                                                     🔄
@@ -608,8 +727,8 @@
                         </div>
                     )}
 
-                    {/* 載入遮罩動畫 */}
-                    {loading && (
+                    {/* 【進度看板 1】一般單股分析載入遮罩 */}
+                    {loading && !bulkUpdating && (
                         <div class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
                             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-2xl max-w-xs w-full mx-4">
                                 <div class="relative w-12 h-12 mx-auto flex items-center justify-center">
@@ -618,6 +737,61 @@
                                 </div>
                                 <h3 class="text-sm font-bold text-white">Gemini 聯網分析中...</h3>
                                 <p class="text-xs text-slate-500 leading-relaxed">正在網路上 Google 搜尋該股票最新價格、歷史走勢與新聞基本面...</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 【進度看板 2】一鍵更新批次處理遮罩面板 */}
+                    {bulkUpdating && (
+                        <div class="fixed inset-0 bg-slate-950/70 backdrop-blur-md flex items-center justify-center z-50 animate-fadeIn p-4">
+                            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl max-w-sm w-full space-y-5">
+                                {/* 進度 Header */}
+                                <div class="text-center space-y-1.5">
+                                    <div class="relative w-12 h-12 mx-auto flex items-center justify-center">
+                                        <span class="absolute inline-block animate-ping rounded-full h-8 w-8 bg-indigo-500/30"></span>
+                                        <span class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-slate-800 border-t-indigo-400"></span>
+                                    </div>
+                                    <h3 class="text-base font-black text-white">正在執行一鍵更新</h3>
+                                    <p class="text-xs text-indigo-400 font-semibold">進度: {bulkProgress.current} / {bulkProgress.total} 檔</p>
+                                    <p class="text-xs text-slate-400">正在處理: <strong class="text-slate-200">{bulkProgress.activeName}</strong></p>
+                                </div>
+
+                                {/* 排隊進度條 */}
+                                <div class="w-full bg-slate-950 h-2.5 rounded-full p-[2px] border border-slate-850">
+                                    <div 
+                                        style={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%` }} 
+                                        class="bg-gradient-to-r from-sky-400 to-indigo-500 h-full rounded-full transition-all duration-300"
+                                    ></div>
+                                </div>
+
+                                {/* 排隊明細列表 */}
+                                <div class="bg-slate-950/60 rounded-2xl border border-slate-850 max-h-48 overflow-y-auto custom-scrollbar p-3 space-y-2">
+                                    {watchlist.map((stock) => {
+                                        const status = bulkProgress.statusMap[stock.symbol];
+                                        return (
+                                            <div key={stock.symbol} class="flex justify-between items-center text-xs font-semibold py-1">
+                                                <span class="text-slate-300">{stock.symbol} ({stock.name})</span>
+                                                <span>
+                                                    {status === 'waiting' && <span class="text-slate-500 flex items-center gap-1">等待中 ⏳</span>}
+                                                    {status === 'updating' && <span class="text-sky-400 animate-pulse flex items-center gap-1">分析中 ⚙️</span>}
+                                                    {status === 'success' && <span class="text-emerald-400 flex items-center gap-1">成功 ✅</span>}
+                                                    {status === 'failed' && <span class="text-rose-500 flex items-center gap-1">失敗 ❌</span>}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* 手動取消按鈕 */}
+                                <button 
+                                    onClick={() => {
+                                        cancelBulkRef.current = true;
+                                        triggerToast('正在發送取消請求...', 'info');
+                                    }}
+                                    class="w-full py-2.5 bg-slate-800 hover:bg-red-950 text-slate-300 hover:text-red-300 font-bold rounded-xl text-xs transition-all cursor-pointer"
+                                >
+                                    🛑 取消更新任務
+                                </button>
                             </div>
                         </div>
                     )}
