@@ -57,7 +57,7 @@
                 }
             }, []);
 
-            // 自訂彈出訊息 (取代 Iframe 中被阻擋的 alert)
+            // 自訂彈出訊息
             const triggerToast = (message, type = 'info') => {
                 setToast({ show: true, message, type });
                 setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 4000);
@@ -86,13 +86,11 @@
             // 繪製股票趨勢圖
             useEffect(() => {
                 if (data && data.historicalPrices && chartRef.current) {
-                    // 銷毀舊圖表防止重疊與記憶體洩漏
                     if (chartInstance.current) {
                         chartInstance.current.destroy();
                     }
                     const ctx = chartRef.current.getContext('2d');
                     
-                    // 將數據按日期遞增排序
                     const sortedPrices = [...data.historicalPrices].sort((a, b) => new Date(a.date) - new Date(b.date));
 
                     chartInstance.current = new Chart(ctx, {
@@ -101,7 +99,7 @@
                             labels: sortedPrices.map(d => d.date.slice(5)), // 月-日
                             datasets: [{
                                 data: sortedPrices.map(d => d.price),
-                                borderColor: '#0ea5e9', // 亮天藍色
+                                borderColor: '#0ea5e9',
                                 backgroundColor: 'rgba(14, 165, 233, 0.05)',
                                 borderWidth: 2,
                                 tension: 0.3,
@@ -165,14 +163,13 @@
                 setError('');
                 setData(null);
 
-                // 構建極致嚴謹的 AI 提示詞 (Prompt) 確保精準輸出
                 const prompt = `
                   你是一位精通全球股市與量化交易的首席分析師。請針對金融標的「${symbol.toUpperCase()}」進行下一交易日的漲跌幅走勢預測。
                   
                   請利用你的「Google 搜尋功能 (Google Search Grounding)」，在網路上實時檢索並彙整以下資訊：
                   1. 該標的今天的最新收盤價/現價。
                   2. 該標的最近 7 至 10 個交易日的歷史收盤價序列（格式為 YYYY-MM-DD，請找出對應的真實價格，用來繪製圖表）。
-                  3. 最新 24 小時內與該標的相關的新聞、產業趨勢、總體經濟動向、重大財報消息。
+                  3. 最新 24 小時內與該標的相關新聞、產業趨勢、總體經濟動向、重大財報消息。
 
                   請結合搜尋到的「歷史趨勢（技術面）」與「最新利多/利空消息（基本面）」，進行多空機率運算，並輸出標準 JSON 格式。
 
@@ -194,7 +191,6 @@
                   }
                 `;
 
-                // 指數退避重試機制 (符合 1s, 2s, 4s, 8s, 16s 間隔要求)
                 const retryDelays = [1000, 2000, 4000, 8000, 16000];
                 const executeWithRetry = async (url, options, attempt = 0) => {
                     try {
@@ -218,12 +214,12 @@
                 };
 
                 try {
-                    // 呼叫 Gemini 2.5 Flash 聯網預測模型 (使用預覽環境指定的最新穩定模型)
-                    const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey.trim()}`;
+                    // 修正關鍵點：將模型名稱改為穩定正式版 'gemini-2.5-flash'
+                    const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
                     
                     const payload = {
                         contents: [{ parts: [{ text: prompt }] }],
-                        tools: [{ google_search: {} }], // 開啟即時搜尋增強功能
+                        tools: [{ google_search: {} }], // 開啟即時搜尋功能
                         generationConfig: {
                             responseMimeType: "application/json",
                             responseSchema: {
@@ -261,7 +257,7 @@
 
                     const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text;
                     if (!rawText) {
-                        throw new Error('AI 未能成功返回有效的預測結果，請再次點擊預測。');
+                        throw new Error('AI 未能成功返回預測結果，請再次點擊預測。');
                     }
 
                     const parsedResult = JSON.parse(rawText.trim());
