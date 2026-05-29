@@ -15,53 +15,79 @@
     <style>
         body { 
             -webkit-tap-highlight-color: transparent; 
-            background-color: #0b0f19;
+            background-color: #030712;
         }
-        /* 優化手機端滾動條 */
+        /* 優化手機滾動 */
         .custom-scrollbar::-webkit-scrollbar {
             width: 4px;
+            height: 4px;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #1e293b;
+            background: #1f2937;
             border-radius: 9999px;
         }
     </style>
 </head>
-<body class="text-slate-100 font-sans min-h-screen antialiased select-none pb-12">
+<body class="text-slate-100 font-sans min-h-screen antialiased select-none pb-16">
 
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
+        // 預設觀察股票清單
+        const DEFAULT_WATCHLIST = [
+            { symbol: '2330.TW', name: '台積電', predictionHistory: {}, latestData: null },
+            { symbol: '0050.TW', name: '元大台灣50', predictionHistory: {}, latestData: null },
+            { symbol: 'NVDA', name: '輝達', predictionHistory: {}, latestData: null },
+            { symbol: 'AAPL', name: '蘋果公司', predictionHistory: {}, latestData: null }
+        ];
+
         function App() {
-            const [symbol, setSymbol] = useState('');
+            // 核心 State
+            const [watchlist, setWatchlist] = useState([]);
+            const [selectedStock, setSelectedStock] = useState(null);
             const [apiKey, setApiKey] = useState('');
             const [showKeyInput, setShowKeyInput] = useState(true);
+            const [newSymbol, setNewSymbol] = useState('');
             const [loading, setLoading] = useState(false);
-            const [data, setData] = useState(null);
             const [error, setError] = useState('');
+            const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'detail'
             const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
-            
+
             const chartRef = useRef(null);
             const chartInstance = useRef(null);
 
-            // 網頁載入時自動讀取本地儲存的 API Key
+            // 1. 初始化資料
             useEffect(() => {
+                // 載入 API Key
                 const savedKey = localStorage.getItem('gemini_api_key');
                 if (savedKey) {
                     setApiKey(savedKey);
                     setShowKeyInput(false);
                 }
+
+                // 載入觀察清單
+                const savedWatchlist = localStorage.getItem('alphapredict_watchlist');
+                if (savedWatchlist) {
+                    try {
+                        setWatchlist(JSON.parse(savedWatchlist));
+                    } catch (e) {
+                        setWatchlist(DEFAULT_WATCHLIST);
+                    }
+                } else {
+                    setWatchlist(DEFAULT_WATCHLIST);
+                    localStorage.setItem('alphapredict_watchlist', JSON.stringify(DEFAULT_WATCHLIST));
+                }
             }, []);
 
-            // 自訂彈出訊息
+            // 彈出提示訊息
             const triggerToast = (message, type = 'info') => {
                 setToast({ show: true, message, type });
                 setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 4000);
             };
 
-            // 儲存金鑰到手機本地空間
+            // 儲存金鑰
             const handleSaveApiKey = (e) => {
                 e.preventDefault();
                 if (!apiKey.trim()) {
@@ -73,7 +99,7 @@
                 triggerToast('金鑰已安全儲存！', 'success');
             };
 
-            // 清除本地儲存的金鑰
+            // 清除金鑰
             const handleClearApiKey = () => {
                 localStorage.removeItem('gemini_api_key');
                 setApiKey('');
@@ -81,20 +107,54 @@
                 triggerToast('金鑰已安全清除', 'info');
             };
 
-            // 繪製股票趨勢圖
+            // 新增觀察股票
+            const handleAddStock = (e) => {
+                e.preventDefault();
+                const sym = newSymbol.trim().toUpperCase();
+                if (!sym) return;
+
+                if (watchlist.some(s => s.symbol === sym)) {
+                    triggerToast('此股票已在觀察清單中！', 'error');
+                    return;
+                }
+
+                const updated = [
+                    ...watchlist,
+                    { symbol: sym, name: sym, predictionHistory: {}, latestData: null }
+                ];
+                setWatchlist(updated);
+                localStorage.setItem('alphapredict_watchlist', JSON.stringify(updated));
+                setNewSymbol('');
+                triggerToast(`已成功將 ${sym} 新增至清單`, 'success');
+            };
+
+            // 刪除觀察股票
+            const handleRemoveStock = (sym, e) => {
+                e.stopPropagation(); // 防止觸發點擊詳情
+                const updated = watchlist.filter(s => s.symbol !== sym);
+                setWatchlist(updated);
+                localStorage.setItem('alphapredict_watchlist', JSON.stringify(updated));
+                if (selectedStock && selectedStock.symbol === sym) {
+                    setSelectedStock(null);
+                    setCurrentView('dashboard');
+                }
+                triggerToast('已從觀察清單移除', 'info');
+            };
+
+            // 繪製詳細趨勢圖表
             useEffect(() => {
-                if (data && data.historicalPrices && chartRef.current) {
+                if (currentView === 'detail' && selectedStock?.latestData?.historicalPrices && chartRef.current) {
                     if (chartInstance.current) {
                         chartInstance.current.destroy();
                     }
                     const ctx = chartRef.current.getContext('2d');
                     
-                    const sortedPrices = [...data.historicalPrices].sort((a, b) => new Date(a.date) - new Date(b.date));
+                    const sortedPrices = [...selectedStock.latestData.historicalPrices].sort((a, b) => new Date(a.date) - new Date(b.date));
 
                     chartInstance.current = new Chart(ctx, {
                         type: 'line',
                         data: {
-                            labels: sortedPrices.map(d => d.date.slice(5)), // 只秀 月-日
+                            labels: sortedPrices.map(d => d.date.slice(5)),
                             datasets: [{
                                 data: sortedPrices.map(d => d.price),
                                 borderColor: '#38bdf8',
@@ -112,34 +172,24 @@
                         options: {
                             responsive: true,
                             maintainAspectRatio: false,
-                            plugins: {
-                                legend: { display: false }
-                            },
+                            plugins: { legend: { display: false } },
                             scales: {
-                                x: {
-                                    grid: { display: false },
-                                    ticks: { color: '#64748b', font: { size: 10 } }
-                                },
-                                y: {
-                                    grid: { color: '#1e293b' },
-                                    ticks: { color: '#64748b', font: { size: 10 } }
-                                }
+                                x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 } } },
+                                y: { grid: { color: '#111827' }, ticks: { color: '#64748b', font: { size: 10 } } }
                             }
                         }
                     });
                 }
-            }, [data]);
+            }, [currentView, selectedStock]);
 
-            // 智慧過濾 JSON 提取器 (動態組合避免中斷系統解析器)
+            // 智慧過濾 JSON 提取器
             const cleanAndExtractJson = (text) => {
                 let temp = text.trim();
-                
                 const backtick = '`';
                 const threeTicks = backtick + backtick + backtick;
                 const startTag = threeTicks + 'json';
                 const endTag = threeTicks;
 
-                // 優先解析 markdown json 區塊
                 let startIdx = temp.indexOf(startTag);
                 if (startIdx !== -1) {
                     let endIdx = temp.indexOf(endTag, startIdx + startTag.length);
@@ -148,7 +198,6 @@
                     }
                 }
 
-                // 備用解析法：尋找第一個 { 與最後一個 } 的區間
                 const firstBrace = temp.indexOf('{');
                 const lastBrace = temp.lastIndexOf('}');
                 if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -158,40 +207,37 @@
                 return temp;
             };
 
-            // 預測處理 (含 5 次指數型退避重試)
-            const handlePredict = async (e) => {
-                e.preventDefault();
+            // 呼叫 Gemini 進行單股預測更新
+            const handleUpdateStock = async (stockItem) => {
                 if (!apiKey.trim()) {
                     triggerToast('請先設定您的 Gemini API Key！', 'error');
                     setShowKeyInput(true);
                     return;
                 }
-                if (!symbol.trim()) {
-                    triggerToast('請輸入股票或 ETF 代號！', 'error');
-                    return;
-                }
 
                 setLoading(true);
                 setError('');
-                setData(null);
 
-                // 提示詞不包含任何 ``` 符號避免解析錯誤
+                const todayStr = new Date().toISOString().split('T')[0];
+
                 const prompt = `
-                  你是一位精通全球股市與量化交易的首席分析師。請針對金融標的「${symbol.toUpperCase()}」進行下一交易日的漲跌幅走勢預測。
+                  你是一位精通全球股市與量化交易的首席分析師。請針對金融標的「${stockItem.symbol}」進行預測。
                   
                   請利用你的 Google 搜尋功能 (Google Search Grounding)，在網路上實時檢索並彙整以下資訊：
-                  1. 該標的今天的最新收盤價/現價。
+                  1. 該標的今天的最新收盤價/現價、公司正式名稱。
                   2. 該標的最近 7 至 10 個交易日的歷史收盤價序列（格式為 YYYY-MM-DD，請找出對應的真實價格，用來繪製圖表）。
-                  3. 最新 24 小時內與該標的相關新聞、產業趨勢、總體經濟動向、重大財報消息。
-
-                  請結合搜尋到的「歷史趨勢（技術面）」與「最新利多/利空消息（基本面）」，進行多空機率運算。
+                  3. 最新 24 小時內與該標的相關新聞、今日收盤的「實際漲跌幅狀態（是漲還是跌）」。
+                  4. 明天（下一個交易日）的走勢預測。
 
                   請絕對只返回一個標準的 JSON 格式內容（可以直接用 markdown json 格式包裝），除此之外不要有任何前後說明引言。
                   JSON 結構必須完全符合以下欄位設定，且其中的 historicalPrices 請務必填入你搜尋到的真實歷史價格：
                   {
-                    "symbol": "${symbol.toUpperCase()}",
+                    "symbol": "${stockItem.symbol}",
+                    "name": "公司的中英文正式簡稱（例如：台積電、輝達、元大台灣50 等）",
                     "currentPrice": 最新價格(數字),
-                    "prediction": "漲" 或 "跌" 或 "盤整",
+                    "todayActual": "今日實際結果走勢，必須填入 '漲' 或 '跌' 或 '平'",
+                    "todayChangePercent": "今日實際漲跌幅百分比字串，例如 '+1.52%' 或 '-0.8%'",
+                    "prediction": "預測明日結果走勢，必須填入 '漲' 或 '跌' 或 '盤整'",
                     "upProbability": 漲的機率百分比(整數，例如 65),
                     "downProbability": 跌的機率百分比(整數，例如 35),
                     "targetRange": "預測隔日波動區間，例如 152.0 ~ 155.5",
@@ -203,6 +249,7 @@
                   }
                 `;
 
+                // 指數型退避重試
                 const retryDelays = [1000, 2000, 4000, 8000, 16000];
                 const executeWithRetry = async (url, options, attempt = 0) => {
                     try {
@@ -226,12 +273,11 @@
                 };
 
                 try {
-                    // 使用正式聯網穩定版
                     const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
                     
                     const payload = {
                         contents: [{ parts: [{ text: prompt }] }],
-                        tools: [{ google_search: {} }] // 開啟 Google Grounding 聯網搜尋大腦
+                        tools: [{ google_search: {} }]
                     };
 
                     const result = await executeWithRetry(apiEndpoint, {
@@ -242,39 +288,80 @@
 
                     const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text;
                     if (!rawText) {
-                        throw new Error('AI 未能成功返回預測結果，請再試一次。');
+                        throw new Error('AI 未能返回數據，請重新嘗試更新。');
                     }
 
-                    const cleanedJsonString = cleanAndExtractJson(rawText);
-                    const parsedResult = JSON.parse(cleanedJsonString);
+                    const cleanedJson = cleanAndExtractJson(rawText);
+                    const parsedResult = JSON.parse(cleanedJson);
+
+                    // 智慧儲存邏輯：
+                    // 在進行今日更新前，如果昨日已經有做出「明日預測」，它就成了「昨日預測」！
+                    // 我們需要將之前的預測，保留到昨日預測欄位中
+                    let yesterdayPrediction = '-';
+                    if (stockItem.latestData?.prediction) {
+                        yesterdayPrediction = stockItem.latestData.prediction;
+                    }
+
+                    const updatedStock = {
+                        ...stockItem,
+                        name: parsedResult.name || stockItem.name,
+                        latestData: parsedResult,
+                        predictionHistory: {
+                            ...stockItem.predictionHistory,
+                            [todayStr]: {
+                                yesterdayPrediction: yesterdayPrediction,
+                                todayActual: parsedResult.todayActual + " (" + parsedResult.todayChangePercent + ")",
+                                tomorrowPrediction: parsedResult.prediction + " (" + parsedResult.upProbability + "%)",
+                                rawData: parsedResult
+                            }
+                        }
+                    };
+
+                    const updatedWatchlist = watchlist.map(s => s.symbol === stockItem.symbol ? updatedStock : s);
+                    setWatchlist(updatedWatchlist);
+                    localStorage.setItem('alphapredict_watchlist', JSON.stringify(updatedWatchlist));
                     
-                    setData(parsedResult);
-                    triggerToast('預測報告生成完畢！', 'success');
+                    if (selectedStock && selectedStock.symbol === stockItem.symbol) {
+                        setSelectedStock(updatedStock);
+                    }
+
+                    triggerToast(`${updatedStock.name} 更新成功！`, 'success');
 
                 } catch (err) {
-                    console.error('預測失敗:', err);
-                    setError(err.message || '連線至 Gemini API 失敗，請確認您的金鑰與網路。');
-                    triggerToast('預測處理中斷', 'error');
+                    console.error('更新失敗:', err);
+                    setError(err.message || '連線 API 失敗，請重試。');
+                    triggerToast('分析更新失敗', 'error');
                 } finally {
                     setLoading(false);
                 }
             };
 
+            const getDisplayData = (stock) => {
+                const todayStr = new Date().toISOString().split('T')[0];
+                const historyData = stock.predictionHistory?.[todayStr];
+
+                return {
+                    yesterdayPred: historyData?.yesterdayPrediction || stock.latestData?.yesterdayPrediction || '-',
+                    todayAct: historyData?.todayActual || (stock.latestData ? `${stock.latestData.todayActual} (${stock.latestData.todayChangePercent})` : '-'),
+                    tomorrowPred: historyData?.tomorrowPrediction || (stock.latestData ? `${stock.latestData.prediction} (${stock.latestData.upProbability}%)` : '-')
+                };
+            };
+
             return (
                 <div class="max-w-md mx-auto p-4 space-y-5">
                     {/* Header */}
-                    <header class="text-center my-4 space-y-1.5">
-                        <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-sky-500/10 text-sky-400 text-2xl mb-1 shadow-inner">
+                    <header class="text-center my-2 space-y-1">
+                        <div class="inline-flex items-center justify-center w-11 h-11 rounded-2xl bg-sky-500/10 text-sky-400 text-2xl mb-1 shadow-inner">
                             🔮
                         </div>
                         <h1 class="text-xl font-bold tracking-wide bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent">
                             AlphaPredict 智股預測家
                         </h1>
-                        <p class="text-[10px] text-slate-500 tracking-wider uppercase font-medium">Serverless Client-Side AI Predictor</p>
+                        <p class="text-[9px] text-slate-500 tracking-wider uppercase font-medium">Serverless Portfolio Monitor & Predictor</p>
                     </header>
 
-                    {/* API Key 狀態設定卡 */}
-                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
+                    {/* API Key 設定區塊 */}
+                    <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl">
                         <div class="flex justify-between items-center">
                             <h2 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
                                 <span class="text-sky-400">🔑</span> Gemini API 金鑰設定
@@ -296,18 +383,18 @@
                                     placeholder="輸入 AIzaSy... 開頭的 API Key" 
                                     value={apiKey}
                                     onChange={(e) => setApiKey(e.target.value)}
-                                    class="flex-1 bg-slate-950 border border-slate-800/80 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 placeholder-slate-700 transition-all font-mono"
+                                    class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 placeholder-slate-700 font-mono"
                                 />
                                 <button 
                                     type="submit" 
-                                    class="bg-sky-500 hover:bg-sky-600 text-white font-semibold px-4 py-2.5 rounded-xl text-xs transition-all cursor-pointer active:scale-95"
+                                    class="bg-sky-500 hover:bg-sky-600 text-white font-semibold px-4 py-2.5 rounded-xl text-xs transition-all cursor-pointer"
                                 >
                                     儲存
                                 </button>
                             </form>
                         ) : (
-                            <div class="mt-3 flex justify-between items-center bg-slate-950/60 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs">
-                                <span class="font-mono text-slate-500 font-medium">已安全儲存金鑰 (••••••••••••)</span>
+                            <div class="mt-3 flex justify-between items-center bg-slate-950/40 border border-slate-850 rounded-xl px-3.5 py-2.5 text-xs">
+                                <span class="font-mono text-slate-500">已安全儲存金鑰 (••••••••••••)</span>
                                 <button 
                                     type="button" 
                                     onClick={handleClearApiKey}
@@ -319,105 +406,230 @@
                         )}
                     </div>
 
-                    {/* 輸入與查詢區塊 */}
-                    <form onSubmit={handlePredict} class="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-xl space-y-3">
-                        <label class="block text-[11px] font-bold text-slate-400">輸入全球股票或 ETF 代號</label>
-                        <div class="flex gap-2">
-                            <input 
-                                type="text" 
-                                placeholder="台股如: 2330.TW | 美股: NVDA | ETF: 00830.TW" 
-                                value={symbol}
-                                onChange={(e) => setSymbol(e.target.value)}
-                                class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-sky-500 uppercase placeholder-slate-700 font-semibold text-slate-200"
-                            />
-                            <button 
-                                type="submit" 
-                                disabled={loading}
-                                class="bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 text-white font-bold px-5 py-3 rounded-xl text-xs transition-all shadow-md active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
-                            >
-                                {loading ? (
-                                    <span class="inline-block animate-spin rounded-full h-3.5 w-3.5 border-2 border-slate-400 border-t-white"></span>
-                                ) : '🔮 預測'}
-                            </button>
-                        </div>
-                    </form>
+                    {/* 主畫面：儀表板與觀察名單 */}
+                    {currentView === 'dashboard' && (
+                        <div class="space-y-4">
+                            {/* 新增股票輸入框 */}
+                            <form onSubmit={handleAddStock} class="bg-slate-900/60 border border-slate-800 p-3 rounded-2xl flex gap-2 items-center">
+                                <input 
+                                    type="text" 
+                                    placeholder="新增標的：例如 NVDA 或 2330.TW" 
+                                    value={newSymbol}
+                                    onChange={(e) => setNewSymbol(e.target.value)}
+                                    class="flex-1 bg-transparent px-3 py-2 text-xs text-slate-200 focus:outline-none placeholder-slate-600 uppercase font-bold"
+                                />
+                                <button 
+                                    type="submit" 
+                                    class="bg-indigo-600/80 hover:bg-indigo-600 text-white font-bold px-4 py-2 rounded-xl text-xs transition-all flex items-center gap-1 cursor-pointer"
+                                >
+                                    <span>➕</span> 新增
+                                </button>
+                            </form>
 
-                    {/* 錯誤資訊 */}
+                            {/* 觀察對象綜合對照表 */}
+                            <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl">
+                                <div class="p-4 border-b border-slate-800 flex justify-between items-center">
+                                    <h3 class="text-xs font-black text-slate-400 uppercase tracking-wider">📊 每日觀察對稱儀表板</h3>
+                                    {loading && (
+                                        <span class="inline-block animate-spin rounded-full h-3.5 w-3.5 border-2 border-slate-700 border-t-white"></span>
+                                    )}
+                                </div>
+
+                                <div class="overflow-x-auto custom-scrollbar">
+                                    <table class="w-full text-left text-xs min-w-[340px]">
+                                        <thead class="bg-slate-950/80 text-slate-500 font-bold border-b border-slate-850">
+                                            <tr>
+                                                <th class="py-3 px-3">編號/名稱</th>
+                                                <th class="py-3 px-2 text-center">昨日預測</th>
+                                                <th class="py-3 px-2 text-center">今日實際</th>
+                                                <th class="py-3 px-2 text-center">預測明日</th>
+                                                <th class="py-3 px-3 text-right">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-slate-850">
+                                            {watchlist.map((stock) => {
+                                                const disp = getDisplayData(stock);
+                                                const isUpToday = disp.todayAct.includes('漲') || disp.todayAct.includes('+');
+                                                const isDownToday = disp.todayAct.includes('跌') || disp.todayAct.includes('-');
+                                                
+                                                return (
+                                                    <tr 
+                                                        key={stock.symbol}
+                                                        onClick={() => {
+                                                            setSelectedStock(stock);
+                                                            setCurrentView('detail');
+                                                        }}
+                                                        class="hover:bg-slate-800/30 transition-colors cursor-pointer active:bg-slate-800"
+                                                    >
+                                                        {/* 編號名稱 */}
+                                                        <td class="py-3 px-3 font-semibold">
+                                                            <div class="text-slate-100 font-bold truncate max-w-[90px]">{stock.symbol}</div>
+                                                            <div class="text-[10px] text-slate-500 truncate max-w-[90px]">{stock.name}</div>
+                                                        </td>
+                                                        {/* 昨日預測 */}
+                                                        <td class="py-3 px-2 text-center font-bold">
+                                                            <span class={
+                                                                disp.yesterdayPred.includes('漲') ? 'text-emerald-400' :
+                                                                disp.yesterdayPred.includes('跌') ? 'text-rose-400' : 'text-slate-500'
+                                                            }>
+                                                                {disp.yesterdayPred}
+                                                            </span>
+                                                        </td>
+                                                        {/* 今日實際 */}
+                                                        <td class="py-3 px-2 text-center font-bold">
+                                                            <span class={
+                                                                isUpToday ? 'text-emerald-400' :
+                                                                isDownToday ? 'text-rose-400' : 'text-slate-400'
+                                                            }>
+                                                                {disp.todayAct}
+                                                            </span>
+                                                        </td>
+                                                        {/* 預測明日 */}
+                                                        <td class="py-3 px-2 text-center font-bold">
+                                                            <span class={
+                                                                disp.tomorrowPred.includes('漲') ? 'text-emerald-400' :
+                                                                disp.tomorrowPred.includes('跌') ? 'text-rose-400' : 'text-slate-400'
+                                                            }>
+                                                                {disp.tomorrowPred}
+                                                            </span>
+                                                        </td>
+                                                        {/* 操作 */}
+                                                        <td class="py-3 px-3 text-right">
+                                                            <div class="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                                                                <button 
+                                                                    onClick={() => handleUpdateStock(stock)}
+                                                                    disabled={loading}
+                                                                    class="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sky-400 transition-all cursor-pointer"
+                                                                    title="更新預測"
+                                                                >
+                                                                    🔄
+                                                                </button>
+                                                                <button 
+                                                                    onClick={(e) => handleRemoveStock(stock.symbol, e)}
+                                                                    class="p-1.5 bg-slate-800 hover:bg-red-950 rounded-lg text-red-400 transition-all cursor-pointer"
+                                                                    title="刪除"
+                                                                >
+                                                                    🗑️
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 詳細預測結果畫面 */}
+                    {currentView === 'detail' && selectedStock && (
+                        <div class="space-y-4">
+                            {/* 返回按鈕 */}
+                            <button 
+                                onClick={() => setCurrentView('dashboard')}
+                                class="bg-slate-900 border border-slate-800 hover:bg-slate-850 px-4 py-2 rounded-xl text-xs font-bold text-slate-300 cursor-pointer flex items-center gap-1 active:scale-95"
+                            >
+                                ⬅️ 返回觀察儀表板
+                            </button>
+
+                            {selectedStock.latestData ? (
+                                <div class="space-y-4 animate-fadeIn">
+                                    {/* 預報主看板 */}
+                                    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+                                        <div class="flex justify-between items-start">
+                                            <div>
+                                                <h2 class="text-2xl font-black text-white tracking-tight">{selectedStock.symbol}</h2>
+                                                <p class="text-xs text-slate-400 mt-0.5">{selectedStock.name} · 最新價: <span class="font-mono font-semibold text-sky-400">${selectedStock.latestData.currentPrice}</span></p>
+                                            </div>
+                                            <div class={`text-xs font-black px-3.5 py-1.5 rounded-full ${
+                                                selectedStock.latestData.prediction === '漲' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
+                                                selectedStock.latestData.prediction === '跌' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/20' :
+                                                'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                                            }`}>
+                                                明日預測：{selectedStock.latestData.prediction}
+                                            </div>
+                                        </div>
+
+                                        {/* 多空機率條 */}
+                                        <div class="space-y-2 pt-2 border-t border-slate-800/50">
+                                            <div class="flex justify-between text-[11px] font-bold">
+                                                <span class="text-emerald-400 flex items-center gap-1">🟢 漲的機率 {selectedStock.latestData.upProbability}%</span>
+                                                <span class="text-rose-400 flex items-center gap-1">🔴 跌的機率 {selectedStock.latestData.downProbability}%</span>
+                                            </div>
+                                            <div class="w-full bg-slate-950 h-3 rounded-full flex overflow-hidden p-[2px] border border-slate-800/40">
+                                                <div style={{width: `${selectedStock.latestData.upProbability}%`}} class="bg-emerald-500 rounded-l-full transition-all duration-500"></div>
+                                                <div style={{width: `${selectedStock.latestData.downProbability}%`}} class="bg-rose-500 rounded-r-full transition-all duration-500"></div>
+                                            </div>
+                                        </div>
+
+                                        {/* 波動區間 */}
+                                        <div class="bg-slate-950/80 p-3 rounded-xl border border-slate-850 flex justify-between items-center">
+                                            <span class="text-[11px] text-slate-400 font-medium">波動預測區間</span>
+                                            <span class="font-mono text-xs text-sky-300 font-bold">{selectedStock.latestData.targetRange}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* 技術面：K 線趨勢圖 */}
+                                    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl space-y-3">
+                                        <h3 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                                            <span>📈</span> 聯網檢索歷史收盤價
+                                        </h3>
+                                        <div class="h-44">
+                                            <canvas ref={chartRef}></canvas>
+                                        </div>
+                                    </div>
+
+                                    {/* 基本面：AI 量化分析報告 */}
+                                    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
+                                        <h3 class="text-xs font-bold text-sky-400 flex items-center gap-1.5">
+                                            <span>📋</span> 聯網綜合量化報告
+                                        </h3>
+                                        <p class="text-xs text-slate-300 leading-relaxed text-justify">
+                                            {selectedStock.latestData.analysis}
+                                        </p>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-4">
+                                    <div class="text-4xl">🔮</div>
+                                    <h3 class="text-sm font-bold text-slate-300">目前尚無預測資料</h3>
+                                    <p class="text-xs text-slate-500 max-w-xs mx-auto">請在觀察清單中點擊 🔄 刷新按鈕，讓 Gemini 實時抓取價格並生成量化分析預報！</p>
+                                    <button 
+                                        onClick={() => handleUpdateStock(selectedStock)}
+                                        disabled={loading}
+                                        class="mx-auto bg-sky-500 hover:bg-sky-600 disabled:bg-slate-800 text-white font-bold px-6 py-2.5 rounded-xl text-xs cursor-pointer flex items-center gap-1.5 active:scale-95 transition-all"
+                                    >
+                                        {loading ? '分析計算中...' : '🔮 即刻預報'}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* 載入遮罩動畫 */}
+                    {loading && (
+                        <div class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
+                            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-2xl max-w-xs w-full mx-4">
+                                <div class="relative w-12 h-12 mx-auto flex items-center justify-center">
+                                    <span class="absolute inline-block animate-ping rounded-full h-8 w-8 bg-sky-500/30"></span>
+                                    <span class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-slate-800 border-t-sky-400"></span>
+                                </div>
+                                <h3 class="text-sm font-bold text-white">Gemini 聯網分析中...</h3>
+                                <p class="text-xs text-slate-500 leading-relaxed">正在網路上 Google 搜尋該股票最新價格、歷史走勢與新聞基本面...</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 錯誤展示 */}
                     {error && (
                         <div class="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl text-xs leading-relaxed">
                             ⚠️ {error}
                         </div>
                     )}
 
-                    {/* 預測結果展示 */}
-                    {data && (
-                        <div class="space-y-4">
-                            {/* 預報主看板 */}
-                            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-                                <div class="flex justify-between items-start">
-                                    <div>
-                                        <h2 class="text-2xl font-black text-white tracking-tight">{data.symbol}</h2>
-                                        <p class="text-xs text-slate-400 mt-0.5">最新收盤價: <span class="font-mono font-semibold text-slate-200">${data.currentPrice}</span></p>
-                                    </div>
-                                    <div class={`text-xs font-black px-3.5 py-1.5 rounded-full ${
-                                        data.prediction === '漲' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
-                                        data.prediction === '跌' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/20' :
-                                        'bg-amber-500/15 text-amber-400 border border-amber-500/20'
-                                    }`}>
-                                        隔日走勢：{data.prediction}
-                                    </div>
-                                </div>
-
-                                {/* 多空機率條 */}
-                                <div class="space-y-2 pt-2 border-t border-slate-800/50">
-                                    <div class="flex justify-between text-[11px] font-bold">
-                                        <span class="text-emerald-400 flex items-center gap-1">🟢 漲的機率 {data.upProbability}%</span>
-                                        <span class="text-rose-400 flex items-center gap-1">🔴 跌的機率 {data.downProbability}%</span>
-                                    </div>
-                                    <div class="w-full bg-slate-950 h-3 rounded-full flex overflow-hidden p-[2px] border border-slate-800/40">
-                                        <div style={{width: `${data.upProbability}%`}} class="bg-emerald-500 rounded-l-full transition-all duration-500"></div>
-                                        <div style={{width: `${data.downProbability}%`}} class="bg-rose-500 rounded-r-full transition-all duration-500"></div>
-                                    </div>
-                                </div>
-
-                                {/* 波動區間 */}
-                                <div class="bg-slate-950/80 p-3 rounded-xl border border-slate-850 flex justify-between items-center">
-                                    <span class="text-[11px] text-slate-400 font-medium">波動預測區間</span>
-                                    <span class="font-mono text-xs text-sky-300 font-bold">{data.targetRange}</span>
-                                </div>
-                            </div>
-
-                            {/* 技術面：K 線趨勢圖 */}
-                            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl space-y-3">
-                                <h3 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
-                                    <span>📈</span> 聯網檢索歷史收盤價
-                                </h3>
-                                <div class="h-44">
-                                    <canvas ref={chartRef}></canvas>
-                                </div>
-                            </div>
-
-                            {/* 基本面：AI 量化分析報告 */}
-                            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
-                                <h3 class="text-xs font-bold text-sky-400 flex items-center gap-1.5">
-                                    <span>📋</span> 聯網綜合量化報告
-                                </h3>
-                                <p class="text-xs text-slate-300 leading-relaxed text-justify">
-                                    {data.analysis}
-                                </p>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* 骨架載入動畫 */}
-                    {loading && (
-                        <div class="animate-pulse space-y-4">
-                            <div class="bg-slate-900 border border-slate-800 h-40 rounded-3xl"></div>
-                            <div class="bg-slate-900 border border-slate-800 h-44 rounded-3xl"></div>
-                        </div>
-                    )}
-
-                    {/* 自訂彈出提示訊息 */}
+                    {/* 自訂 Toast */}
                     {toast.show && (
                         <div class={`fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-3 rounded-xl shadow-2xl text-xs font-medium z-50 flex items-center gap-1.5 border transition-all duration-300 ${
                             toast.type === 'success' ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/20' :
