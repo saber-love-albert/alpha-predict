@@ -49,8 +49,53 @@
         // 預設觀察股票清單 (包含昨收、大單、能量條預設範本)
         const DEFAULT_WATCHLIST = [
             { 
+                symbol: 'MSFT', 
+                name: 'Microsoft 微軟', 
+                isFavorite: true,
+                predictionHistory: {
+                    "2026-05-25": { yesterdayPrediction: "漲", todayActual: "漲 (+0.95%)", tomorrowPrediction: "漲 (72%)", isCorrect: true },
+                    "2026-05-26": { yesterdayPrediction: "漲", todayActual: "漲 (+1.10%)", tomorrowPrediction: "跌 (55%)", isCorrect: true },
+                    "2026-05-27": { yesterdayPrediction: "跌", todayActual: "跌 (-0.45%)", tomorrowPrediction: "漲 (68%)", isCorrect: true },
+                    "2026-05-28": { yesterdayPrediction: "漲", todayActual: "漲 (+1.85%)", tomorrowPrediction: "漲 (70%)", isCorrect: true },
+                    "2026-05-29": { yesterdayPrediction: "漲", todayActual: "漲 (+0.20%)", tomorrowPrediction: "漲 (65%)", isCorrect: true }
+                }, 
+                latestData: {
+                    currentPrice: 421.5,
+                    yesterdayClose: 420.66,
+                    todayHigh: 423.8,
+                    todayLow: 419.2,
+                    totalVolume: "18.5M 股",
+                    buyRatio: 51,
+                    sellRatio: 49,
+                    marketTrades: [
+                        { time: "15:59:50", price: 421.5, quantity: "8k股", type: "買入" },
+                        { time: "15:55:12", price: 421.2, quantity: "15k股", type: "買入" },
+                        { time: "15:48:00", price: 420.9, quantity: "12k股", type: "賣出" },
+                        { time: "15:35:10", price: 422.1, quantity: "25k股", type: "買入" },
+                        { time: "15:20:44", price: 420.5, quantity: "10k股", type: "賣出" }
+                    ],
+                    prediction: "漲",
+                    upProbability: 65,
+                    downProbability: 35,
+                    targetRange: "418.0 ~ 426.5",
+                    todayActual: "漲",
+                    todayChangePercent: "+0.20%",
+                    historicalPrices: [
+                        { date: "2026-05-20", price: 412.3 },
+                        { date: "2026-05-21", price: 415.8 },
+                        { date: "2026-05-22", price: 414.1 },
+                        { date: "2026-05-25", price: 418.0 },
+                        { date: "2026-05-26", price: 422.6 },
+                        { date: "2026-05-27", price: 420.7 },
+                        { date: "2026-05-28", price: 428.5 },
+                        { date: "2026-05-29", price: 429.3 }
+                    ],
+                    analysis: "微軟近期得益於 Azure AI 雲端業務的高增長以及 Copilot 企業端授權訂閱超預期的利多影響，中長期技術面維持在健康的上升軌道中。雖然今日盤中遭遇科技股指數板塊獲利回吐的些微壓力，但在 420 元關卡附近展現強勁的買盤支撐。隨著即時資訊中外資持續調高評等，預期下一個交易日多方力量將延續主導地位。"
+                } 
+            },
+            { 
                 symbol: '2330.TW', 
-                name: '台積電', 
+                name: 'TSMC 台積電', 
                 isFavorite: true,
                 predictionHistory: {
                     "2026-05-25": { yesterdayPrediction: "漲", todayActual: "漲 (+1.20%)", tomorrowPrediction: "漲 (70%)", isCorrect: true },
@@ -92,56 +137,11 @@
                     ],
                     analysis: "台積電近期在 2 奈米訂單超預期的利多刺激下，短期技術均線呈現強烈多頭排列。雖然今日受大盤獲利回吐賣壓影響微幅修正 1.05%，但整體量能並未失控。結合最新網路上關於外資調升評等的報告，預期下一個交易日多方將重新奪回主導權，有望在 910 元附近獲得強力支撐並反彈。"
                 } 
-            },
-            { 
-                symbol: 'NVDA', 
-                name: '輝達', 
-                isFavorite: true,
-                predictionHistory: {
-                    "2026-05-25": { yesterdayPrediction: "漲", todayActual: "漲 (+3.40%)", tomorrowPrediction: "漲 (80%)", isCorrect: true },
-                    "2026-05-26": { yesterdayPrediction: "漲", todayActual: "跌 (-0.50%)", tomorrowPrediction: "跌 (60%)", isCorrect: false },
-                    "2026-05-27": { yesterdayPrediction: "跌", todayActual: "跌 (-1.80%)", tomorrowPrediction: "漲 (70%)", isCorrect: true },
-                    "2026-05-28": { yesterdayPrediction: "漲", todayActual: "漲 (+4.20%)", tomorrowPrediction: "漲 (72%)", isCorrect: true },
-                    "2026-05-29": { yesterdayPrediction: "漲", todayActual: "漲 (+1.10%)", tomorrowPrediction: "跌 (55%)", isCorrect: true }
-                }, 
-                latestData: {
-                    currentPrice: 1064.2,
-                    yesterdayClose: 1052.6,
-                    todayHigh: 1085,
-                    todayLow: 1044,
-                    totalVolume: "42.1M 股",
-                    buyRatio: 48,
-                    sellRatio: 52,
-                    marketTrades: [
-                        { time: "15:59:45", price: 1064.2, quantity: "15k股", type: "賣出" },
-                        { time: "15:58:12", price: 1063.8, quantity: "28k股", type: "買入" },
-                        { time: "15:50:00", price: 1065.0, quantity: "45k股", type: "賣出" },
-                        { time: "15:42:15", price: 1061.5, quantity: "35k股", type: "買入" },
-                        { time: "15:30:22", price: 1059.0, quantity: "50k股", type: "買入" }
-                    ],
-                    prediction: "跌",
-                    upProbability: 45,
-                    downProbability: 55,
-                    targetRange: "1045.0 ~ 1080.0",
-                    todayActual: "漲",
-                    todayChangePercent: "+1.10%",
-                    historicalPrices: [
-                        { date: "2026-05-20", price: 1010 },
-                        { date: "2026-05-21", price: 1025 },
-                        { date: "2026-05-22", price: 1018 },
-                        { date: "2026-05-25", price: 1052.6 },
-                        { date: "2026-05-26", price: 1047.3 },
-                        { date: "2026-05-27", price: 1028.5 },
-                        { date: "2026-05-28", price: 1071.7 },
-                        { date: "2026-05-29", price: 1083.5 }
-                    ],
-                    analysis: "輝達在發表全新 Blackwell 晶片架構後，市場情緒極度亢奮，股價強勢噴發創下新高。然而短線乖離率過大，技術指標 RSI 已進入 82 超買區。儘管今日因分析師調高目標價而續漲 1.10%，但盤後已有部分獲利回吐資金退場。預期明日走勢將面臨震盪回檔壓力，建議投資人靜待拉回，不宜過度追高。"
-                } 
             }
         ];
 
         // ==========================================
-        // 🔮 1. 智慧防爆：偵測環境變數，安全初始化
+        // 🔮 1. 智慧初始化環境
         // ==========================================
         let db = null;
         let auth = null;
@@ -179,9 +179,13 @@
             const [newSymbol, setNewSymbol] = useState('');
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState('');
-            const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'detail'
-            const [chartTab, setChartTab] = useState('price'); // 'price' | 'match'
+            const [currentView, setCurrentView] = useState('dashboard'); 
+            const [chartTab, setChartTab] = useState('price'); 
             const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
+
+            // 【終極升級】新增：AI 模型選擇器與防頻率限制延遲設定
+            const [selectedModel, setSelectedModel] = useState('gemini-1.5-flash'); // 預設使用最穩定且免費支援的 1.5 flash
+            const [updateInterval, setUpdateInterval] = useState(4000); // 預設 4 秒，防止多股更新時觸發免費 Key 的 15 RPM 限制
 
             // 篩選最愛與排序
             const [onlyFavorites, setOnlyFavorites] = useState(false);
@@ -193,13 +197,13 @@
             const [importString, setImportString] = useState('');
             const exportTextareaRef = useRef(null);
 
-            // 【重磅升級】一鍵更新：改為背景非阻塞式進度追蹤
+            // 背景非阻塞式一鍵更新進度追蹤
             const [bulkUpdating, setBulkUpdating] = useState(false);
             const [bulkProgress, setBulkProgress] = useState({
                 current: 0,
                 total: 0,
                 activeName: '',
-                statusMap: {} 
+                statusMap: {} // { symbol: { status: 'waiting'|'updating'|'success'|'failed', message?: string } }
             });
             const [showBulkProgressCard, setShowBulkProgressCard] = useState(false);
 
@@ -211,16 +215,19 @@
             // 🔒 2. 安全初始化與「格式自動更迭升級模組」
             // ==========================================
             useEffect(() => {
-                const localList = localStorage.getItem('alphapredict_watchlist_v5');
+                const localList = localStorage.getItem('alphapredict_watchlist_v5_2');
                 const localKey = localStorage.getItem('gemini_api_key');
+                const localModel = localStorage.getItem('gemini_selected_model');
+                const localInterval = localStorage.getItem('gemini_update_interval');
                 
                 if (localList) {
                     try {
                         const parsed = JSON.parse(localList);
                         if (Array.isArray(parsed) && parsed.length > 0) {
-                            // 【版本更迭相容模組】自動檢測並無痛填充缺少的欄位，避免舊版資料格式損毀！
+                            // 【版本更迭相容模組】自動填充缺少的欄位，避免舊版資料格式損毀！
                             const upgradedList = parsed.map(item => ({
                                 ...item,
+                                name: item.name || item.symbol,
                                 isFavorite: item.isFavorite !== undefined ? item.isFavorite : false,
                                 predictionHistory: item.predictionHistory || {},
                                 latestData: item.latestData || null
@@ -234,12 +241,18 @@
                     }
                 } else {
                     setWatchlist(DEFAULT_WATCHLIST);
-                    localStorage.setItem('alphapredict_watchlist_v5', JSON.stringify(DEFAULT_WATCHLIST));
+                    localStorage.setItem('alphapredict_watchlist_v5_2', JSON.stringify(DEFAULT_WATCHLIST));
                 }
 
                 if (localKey) {
                     setApiKey(localKey);
                     setShowKeyInput(false);
+                }
+                if (localModel) {
+                    setSelectedModel(localModel);
+                }
+                if (localInterval) {
+                    setUpdateInterval(parseInt(localInterval));
                 }
 
                 if (!useFirebase) {
@@ -275,7 +288,7 @@
                 if (!useFirebase || !user) return; 
 
                 setCloudSyncing(true);
-                const docRef = db.doc(`artifacts/${appId}/users/${user.uid}/watchlist/user_list_v5`);
+                const docRef = db.doc(`artifacts/${appId}/users/${user.uid}/watchlist/user_list_v5_2`);
                 
                 const unsubscribe = docRef.onSnapshot(
                     (docSnap) => {
@@ -288,7 +301,7 @@
                                     isFavorite: item.isFavorite !== undefined ? item.isFavorite : false
                                 }));
                                 setWatchlist(normalizedList);
-                                localStorage.setItem('alphapredict_watchlist_v5', JSON.stringify(normalizedList));
+                                localStorage.setItem('alphapredict_watchlist_v5_2', JSON.stringify(normalizedList));
 
                                 if (selectedStock) {
                                     const freshStock = normalizedList.find(s => s.symbol === selectedStock.symbol);
@@ -302,13 +315,25 @@
                                 localStorage.setItem('gemini_api_key', cloudData.apiKey);
                                 setShowKeyInput(!cloudData.apiKey.trim());
                             }
+                            if (cloudData.selectedModel !== undefined) {
+                                setSelectedModel(cloudData.selectedModel);
+                                localStorage.setItem('gemini_selected_model', cloudData.selectedModel);
+                            }
+                            if (cloudData.updateInterval !== undefined) {
+                                setUpdateInterval(cloudData.updateInterval);
+                                localStorage.setItem('gemini_update_interval', String(cloudData.updateInterval));
+                            }
                         } else {
                             // 第一次使用，同步本地資料到雲端
-                            const currentList = JSON.parse(localStorage.getItem('alphapredict_watchlist_v5')) || DEFAULT_WATCHLIST;
+                            const currentList = JSON.parse(localStorage.getItem('alphapredict_watchlist_v5_2')) || DEFAULT_WATCHLIST;
                             const currentKey = localStorage.getItem('gemini_api_key') || '';
+                            const currentModel = localStorage.getItem('gemini_selected_model') || 'gemini-1.5-flash';
+                            const currentInterval = parseInt(localStorage.getItem('gemini_update_interval') || '4000');
                             docRef.set({
                                 list: currentList,
-                                apiKey: currentKey
+                                apiKey: currentKey,
+                                selectedModel: currentModel,
+                                updateInterval: currentInterval
                             });
                         }
                         setCloudSyncing(false);
@@ -325,17 +350,21 @@
             // ==========================================
             // 💾 4. 複合式寫入：儲存本地，安全上傳
             // ==========================================
-            const saveData = async (newList, newKey) => {
-                localStorage.setItem('alphapredict_watchlist_v5', JSON.stringify(newList));
+            const saveData = async (newList, newKey, newModel = selectedModel, newInterval = updateInterval) => {
+                localStorage.setItem('alphapredict_watchlist_v5_2', JSON.stringify(newList));
                 localStorage.setItem('gemini_api_key', newKey);
+                localStorage.setItem('gemini_selected_model', newModel);
+                localStorage.setItem('gemini_update_interval', String(newInterval));
 
                 if (useFirebase && user) {
                     setCloudSyncing(true);
                     try {
-                        const docRef = db.doc(`artifacts/${appId}/users/${user.uid}/watchlist/user_list_v5`);
+                        const docRef = db.doc(`artifacts/${appId}/users/${user.uid}/watchlist/user_list_v5_2`);
                         await docRef.set({
                             list: newList,
-                            apiKey: newKey
+                            apiKey: newKey,
+                            selectedModel: newModel,
+                            updateInterval: newInterval
                         });
                         setCloudSyncing(false);
                     } catch (err) {
@@ -351,7 +380,7 @@
                 setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 4000);
             };
 
-            // 儲存金鑰
+            // 儲存金鑰與設定
             const handleSaveApiKey = (e) => {
                 e.preventDefault();
                 if (!apiKey.trim()) {
@@ -360,7 +389,7 @@
                 }
                 saveData(watchlist, apiKey.trim());
                 setShowKeyInput(false);
-                triggerToast('金鑰已安全儲存！', 'success');
+                triggerToast('設定已安全儲存！', 'success');
             };
 
             // 清除金鑰
@@ -369,6 +398,22 @@
                 setApiKey('');
                 setShowKeyInput(true);
                 triggerToast('金鑰已安全清除', 'info');
+            };
+
+            // 調整模型選擇
+            const handleModelChange = (e) => {
+                const model = e.target.value;
+                setSelectedModel(model);
+                saveData(watchlist, apiKey, model, updateInterval);
+                triggerToast(`已切換模型為 ${model}`, 'success');
+            };
+
+            // 調整更新間隔
+            const handleIntervalChange = (e) => {
+                const interval = parseInt(e.target.value);
+                setUpdateInterval(interval);
+                saveData(watchlist, apiKey, selectedModel, interval);
+                triggerToast(`更新延遲已設定為 ${interval / 1000} 秒`, 'success');
             };
 
             // 新增觀察股票 (支援批量輸入)
@@ -384,7 +429,6 @@
                     return;
                 }
 
-                // 採用 React 函數式狀態更新，防範背景更新覆蓋！
                 setWatchlist(prev => {
                     let updated = [...prev];
                     let addedCount = 0;
@@ -393,7 +437,7 @@
                         if (!updated.some(s => s.symbol === sym)) {
                             updated.push({
                                 symbol: sym,
-                                name: sym,
+                                name: sym, 
                                 isFavorite: false,
                                 predictionHistory: {},
                                 latestData: null
@@ -445,7 +489,7 @@
                 });
             };
 
-            // 📁 數據備份匯出與匯入轉移功能
+            // 📁 數據備份與還原
             const handleExportData = () => {
                 const packageData = {
                     apiKey: apiKey,
@@ -460,7 +504,7 @@
                 if (exportTextareaRef.current) {
                     exportTextareaRef.current.select();
                     document.execCommand('copy');
-                    triggerToast('已複製備份代碼！可以貼到 LINE 傳給新手機囉。', 'success');
+                    triggerToast('已複製備份代碼！', 'success');
                 }
             };
 
@@ -487,7 +531,7 @@
                 }
             };
 
-            // 拖曳與排序邏輯 (電腦端滑鼠拖曳)
+            // 拖曳與排序
             const handleDragStart = (e, index) => {
                 setDraggedIdx(index);
                 e.dataTransfer.effectAllowed = 'move';
@@ -512,7 +556,7 @@
                 triggerToast('自訂清單排序已儲存！', 'success');
             };
 
-            // 行動端按鈕排序：向上移動
+            // 向上排序
             const moveUp = (index, e) => {
                 e.stopPropagation();
                 if (index === 0) return;
@@ -525,7 +569,7 @@
                 triggerToast('已向上排序', 'info');
             };
 
-            // 行動端按鈕排序：向下移動
+            // 向下排序
             const moveDown = (index, e) => {
                 e.stopPropagation();
                 if (index === watchlist.length - 1) return;
@@ -550,7 +594,7 @@
                 return { rate: `${rate}%`, total: evaluatedKeys.length };
             };
 
-            // 繪製詳細圖表
+            // 繪製圖表
             useEffect(() => {
                 if (currentView === 'detail' && selectedStock?.latestData?.historicalPrices && chartRef.current) {
                     if (chartInstance.current) {
@@ -671,24 +715,41 @@
                 }
             }, [currentView, selectedStock, chartTab]);
 
-            // 單股更新核心方法 (回傳不含 React 狀態綁定的最新乾淨資料物件)
-            const fetchSingleStockUpdate = async (stockItem, currentKey) => {
+            // 智慧過濾 JSON 提取器
+            const cleanAndExtractJson = (text) => {
+                let temp = text.trim();
+                
+                // 去除各種反單引號 Markdown 包裝
+                temp = temp.replace(/^```[a-zA-Z]*/, '');
+                temp = temp.replace(/```$/, '');
+                temp = temp.trim();
+
+                const firstBrace = temp.indexOf('{');
+                const lastBrace = temp.lastIndexOf('}');
+                if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                    return temp.substring(firstBrace, lastBrace + 1).trim();
+                }
+                return temp;
+            };
+
+            // 執行 Fetch 連線 (支援智慧退避重試與詳細 HTTP 錯誤截獲)
+            const executeFetch = async (stockItem, currentKey, modelName) => {
                 const todayStr = new Date().toISOString().split('T')[0];
                 const ticks = String.fromCharCode(96) + String.fromCharCode(96) + String.fromCharCode(96);
 
                 const prompt = "你是一位精通全球股市與量化交易的首席分析師。請針對金融標的「" + stockItem.symbol + "」進行預測。" +
                   "請利用你的 Google 搜尋功能 (Google Search Grounding)，在網路上實時檢索並彙整以下資訊：" +
-                  "1. 該標的今天的最新成交價格、公司正式名稱、今日的 前日收盤價 (昨日收盤價 yesterdayClose)。" +
+                  "1. 該標的今天的最新成交價格、今日的 前日收盤價 (昨日收盤價 yesterdayClose)。" +
                   "2. 今日最高價 (todayHigh)、今日最低價 (todayLow)、今日成交總量 (totalVolume)。" +
                   "3. 該股票今天的「大單交易明細 (marketTrades)」，包含 4~5 筆具代表性的大單，每筆資料需有成交時間(time)、成交價格(price)、成交量(quantity)、以及交易屬性類型(type，買入或賣出)。" +
                   "4. 今日買方力道佔比 (buyRatio，主動買單/外盤，1~100 的整數) 與賣方力道佔比 (sellRatio，主動賣單/內盤，1~100 的整數)。" +
                   "5. 該標的最近 7 至 10 個交易日的歷史收盤價序列（格式為 YYYY-MM-DD，請找出對應的真實價格，用來繪製圖表）。" +
                   "6. 明天（下一個交易日）的走勢預測。" +
                   "請絕對只返回一個標準的 JSON 格式內容（可以用 " + ticks + "json 包裝），除此之外不要有任何前後說明引言。" +
-                  "JSON 結構必須完全符合以下欄位設定，且其中的 historicalPrices 請務必填入你搜尋到的真實歷史價格：" +
+                  "JSON 結構必須完全符合以下欄位設定，且其中的 name 請務必精確填入公司的 [英文官方名稱] 加上 [中文簡稱]（例如：'Microsoft 微軟'），而 historicalPrices 請務必填入你搜尋到的真實歷史價格：" +
                   "{" +
                     '"symbol": "' + stockItem.symbol + '",' +
-                    '"name": "公司的中英文正式簡稱（例如：台積電、輝達、元大台灣50 等）",' +
+                    '"name": "必須為該公司的 英文官方名稱 中文官方簡稱（如: Microsoft 微軟）",' +
                     '"currentPrice": 最新價格(數字),' +
                     '"yesterdayClose": 前日收盤價格(數字),' +
                     '"todayHigh": 今日最高價(數字),' +
@@ -713,58 +774,74 @@
                     '"analysis": "結合技術面（歷史趨勢）與今日網路最新消息（基本面）的綜合分析報告（繁體中文，約 200 字）。"' +
                   "}";
 
-                const retryDelays = [1000, 2000, 4000, 8000, 16000];
-                const executeWithRetry = async (url, options, attempt = 0) => {
-                    try {
-                        const response = await fetch(url, options);
-                        if (!response.ok) {
-                            if (attempt < retryDelays.length) {
-                                await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
-                                return executeWithRetry(url, options, attempt + 1);
-                            }
-                            const errData = await response.json().catch(() => ({}));
-                            throw new Error(errData.error?.message || `API 響應錯誤: ${response.status}`);
-                        }
-                        return await response.json();
-                    } catch (err) {
-                        if (attempt < retryDelays.length) {
-                            await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
-                            return executeWithRetry(url, options, attempt + 1);
-                        }
-                        throw err;
-                    }
-                };
-
-                const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${currentKey.trim()}`;
+                const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${currentKey.trim()}`;
                 const payload = {
                     contents: [{ parts: [{ text: prompt }] }],
                     tools: [{ google_search: {} }]
                 };
 
-                const result = await executeWithRetry(apiEndpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+                const retryDelays = [1000, 2000, 4000, 8000, 16000];
+                const executeWithRetry = async (attempt = 0) => {
+                    try {
+                        const response = await fetch(apiEndpoint, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
 
+                        if (!response.ok) {
+                            const errData = await response.json().catch(() => ({}));
+                            const statusText = response.status === 429 ? "Quota Exceeded (15 RPM Limit ⚠️)" : (errData.error?.message || `HTTP ${response.status}`);
+                            
+                            // 對於伺服器過載或 429 頻率限制，實作指數退避重試
+                            if ((response.status === 429 || response.status >= 500) && attempt < retryDelays.length) {
+                                await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
+                                return executeWithRetry(attempt + 1);
+                            }
+                            throw new Error(statusText);
+                        }
+                        return await response.json();
+                    } catch (err) {
+                        if (attempt < retryDelays.length) {
+                            await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
+                            return executeWithRetry(attempt + 1);
+                        }
+                        throw err;
+                    }
+                };
+
+                const result = await executeWithRetry();
                 const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text;
                 if (!rawText) {
-                    throw new Error('AI 未能返回數據');
+                    throw new Error('AI 未能成功產出數據');
                 }
 
                 const cleanedJson = cleanAndExtractJson(rawText);
                 return JSON.parse(cleanedJson);
             };
 
-            // ==========================================
-            // 🛡️ 5. 超強防競態寫入（防止背景更新覆蓋使用者即時操作）
-            // ==========================================
+            // 【終極防崩潰】單股更新：支援第一模型失敗、自動切換回 gemini-1.5-flash 自動重試降級
+            const fetchSingleStockUpdate = async (stockItem, currentKey) => {
+                try {
+                    // 1. 優先嘗試使用者選擇的模型 (如 2.5-flash)
+                    return await executeFetch(stockItem, currentKey, selectedModel);
+                } catch (err) {
+                    // 2. 如果選定的不是最穩定的 1.5-flash 且出錯，則立刻自動切換成 1.5-flash 重試！
+                    if (selectedModel !== 'gemini-1.5-flash') {
+                        console.warn(`[自動降級] 模型 ${selectedModel} 失敗: ${err.message}。正在自動使用穩定版 gemini-1.5-flash 重新更新...`);
+                        return await executeFetch(stockItem, currentKey, 'gemini-1.5-flash');
+                    }
+                    throw err; // 如果 1.5 flash 也失敗，則丟出實際原因
+                }
+            };
+
+            // 防競態狀態更新
             const applyStockUpdateToState = (targetSymbol, parsedResult) => {
                 const todayStr = new Date().toISOString().split('T')[0];
 
                 setWatchlist(prev => {
                     const freshStock = prev.find(s => s.symbol === targetSymbol);
-                    if (!freshStock) return prev; // 若股票在中途被刪除，則不執行寫入
+                    if (!freshStock) return prev; 
 
                     let yesterdayPrediction = '-';
                     if (freshStock.latestData?.prediction) {
@@ -782,7 +859,7 @@
                     }
 
                     const updatedStock = {
-                        ...freshStock, // 完美保留使用者在背景按下的 favors、排序等資訊！
+                        ...freshStock, 
                         name: parsedResult.name || freshStock.name,
                         latestData: parsedResult,
                         predictionHistory: {
@@ -800,7 +877,6 @@
                     const updatedList = prev.map(s => s.symbol === targetSymbol ? updatedStock : s);
                     saveData(updatedList, apiKey);
 
-                    // 如果使用者正停留在這檔股票的詳細頁，即時刷新詳細頁面數據
                     if (selectedStock && selectedStock.symbol === targetSymbol) {
                         setSelectedStock(updatedStock);
                     }
@@ -809,7 +885,7 @@
                 });
             };
 
-            // 手動單股獨立更新
+            // 手動單股更新
             const handleUpdateStock = async (stockItem) => {
                 if (!apiKey.trim()) {
                     triggerToast('請先設定您的 Gemini API Key！', 'error');
@@ -826,16 +902,14 @@
                     triggerToast(`${stockItem.symbol} 更新成功！`, 'success');
                 } catch (err) {
                     console.error('更新失敗:', err);
-                    setError(err.message || '連線 API 失敗，請重試。');
+                    setError(`${stockItem.symbol}: ${err.message}`);
                     triggerToast('分析更新失敗', 'error');
                 } finally {
                     setLoading(false);
                 }
             };
 
-            // ==========================================
-            // 🔄 6. 【黑科技】全新背景非阻塞式「一鍵更新」機制
-            // ==========================================
+            // 一鍵背景非阻塞更新 (改為逐股智慧延遲、並在進度列顯示具體錯誤原因)
             const handleUpdateAllWatchlist = async () => {
                 if (!apiKey.trim()) {
                     triggerToast('請先設定您的 Gemini API Key！', 'error');
@@ -850,15 +924,14 @@
                     return;
                 }
 
-                // 啟動背景狀態
                 cancelBulkRef.current = false;
                 setBulkUpdating(true);
-                setShowBulkProgressCard(true); // 展開浮動小面板
+                setShowBulkProgressCard(true); 
                 setError('');
                 
                 const initialStatusMap = {};
                 targetList.forEach(s => {
-                    initialStatusMap[s.symbol] = 'waiting';
+                    initialStatusMap[s.symbol] = { status: 'waiting' };
                 });
 
                 setBulkProgress({
@@ -868,10 +941,9 @@
                     statusMap: initialStatusMap
                 });
 
-                // 開始背景隊列更新 (完全不阻擋使用者操作畫面！)
                 for (let i = 0; i < targetList.length; i++) {
                     if (cancelBulkRef.current) {
-                        triggerToast('背景一鍵更新已取消！已跑完資料安全存檔。', 'info');
+                        triggerToast('背景一鍵更新已取消！', 'info');
                         break;
                     }
 
@@ -881,40 +953,43 @@
                         ...prev,
                         current: i + 1,
                         activeName: currentStock.name,
-                        statusMap: { ...prev.statusMap, [currentStock.symbol]: 'updating' }
+                        statusMap: { 
+                            ...prev.statusMap, 
+                            [currentStock.symbol]: { status: 'updating' } 
+                        }
                     }));
 
                     try {
-                        // 背景連線 Gemini API
                         const parsedResult = await fetchSingleStockUpdate(currentStock, apiKey);
-                        
-                        // 防競態寫入狀態
                         applyStockUpdateToState(currentStock.symbol, parsedResult);
 
                         setBulkProgress(prev => ({
                             ...prev,
-                            statusMap: { ...prev.statusMap, [currentStock.symbol]: 'success' }
+                            statusMap: { 
+                                ...prev.statusMap, 
+                                [currentStock.symbol]: { status: 'success' } 
+                            }
                         }));
 
                     } catch (err) {
                         console.error(`更新 ${currentStock.symbol} 失敗:`, err);
+                        // 【驚艷升級】出錯時，在進度條上精確展示為什麼失敗！
                         setBulkProgress(prev => ({
                             ...prev,
-                            statusMap: { ...prev.statusMap, [currentStock.symbol]: 'failed' }
+                            statusMap: { 
+                                ...prev.statusMap, 
+                                [currentStock.symbol]: { status: 'failed', message: err.message } 
+                            }
                         }));
                     }
 
-                    // 間隔 2.5 秒，避免觸發 API Rate limit
+                    // 智慧調控每檔股票更新間隔 (防範 Rate Limit - 429)
                     if (i < targetList.length - 1 && !cancelBulkRef.current) {
-                        await new Promise(resolve => setTimeout(resolve, 2500));
+                        await new Promise(resolve => setTimeout(resolve, updateInterval));
                     }
                 }
 
                 setBulkUpdating(false);
-                // 3秒後自動收合背景小面板
-                setTimeout(() => {
-                    setShowBulkProgressCard(false);
-                }, 3000);
                 triggerToast('一鍵更新任務全部完成！', 'success');
             };
 
@@ -929,7 +1004,6 @@
                 };
             };
 
-            // 過濾後展示的名單
             const filteredWatchlist = onlyFavorites ? watchlist.filter(s => s.isFavorite) : watchlist;
 
             return (
@@ -965,48 +1039,85 @@
                         <p class="text-[9px] text-slate-500 tracking-wider uppercase font-medium">Hybrid Cloud-Synced AI Predictor</p>
                     </header>
 
-                    {/* API Key 設定區塊 */}
-                    <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl font-medium">
+                    {/* API Key 與 AI 量化引擎設定區塊 */}
+                    <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl font-medium space-y-3">
                         <div class="flex justify-between items-center">
                             <h2 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
-                                <span class="text-sky-400">🔑</span> Gemini API 金鑰設定
+                                <span class="text-sky-400">🔑</span> Gemini API 與引擎設定
                             </h2>
                             {!showKeyInput && (
                                 <button 
                                     onClick={() => setShowKeyInput(true)} 
                                     class="text-[10px] text-sky-400 hover:text-sky-300 font-medium cursor-pointer"
                                 >
-                                    修改金鑰
+                                    修改設定
                                 </button>
                             )}
                         </div>
 
                         {showKeyInput ? (
-                            <form onSubmit={handleSaveApiKey} class="mt-3 flex gap-2">
-                                <input 
-                                    type="password" 
-                                    placeholder="輸入 AIzaSy... 開頭的 API Key" 
-                                    value={apiKey}
-                                    onChange={(e) => setApiKey(e.target.value)}
-                                    class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 placeholder-slate-700 font-mono"
-                                />
-                                <button 
-                                    type="submit" 
-                                    class="bg-sky-500 hover:bg-sky-600 text-white font-semibold px-4 py-2.5 rounded-xl text-xs transition-all cursor-pointer"
-                                >
-                                    儲存
-                                </button>
+                            <form onSubmit={handleSaveApiKey} class="space-y-3">
+                                <div class="flex gap-2">
+                                    <input 
+                                        type="password" 
+                                        placeholder="輸入 AIzaSy... 開頭的 API Key" 
+                                        value={apiKey}
+                                        onChange={(e) => setApiKey(e.target.value)}
+                                        class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 placeholder-slate-700 font-mono"
+                                    />
+                                    <button 
+                                        type="submit" 
+                                        class="bg-sky-500 hover:bg-sky-600 text-white font-semibold px-4 py-2.5 rounded-xl text-xs transition-all cursor-pointer"
+                                    >
+                                        儲存
+                                    </button>
+                                </div>
+                                
+                                {/* 智慧模型與延遲滑桿 (在展開時顯示) */}
+                                <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-850">
+                                    <div>
+                                        <label class="block text-[10px] text-slate-500 mb-1">AI 預測引擎</label>
+                                        <select 
+                                            value={selectedModel}
+                                            onChange={handleModelChange}
+                                            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-[11px] text-slate-300 focus:outline-none"
+                                        >
+                                            <option value="gemini-1.5-flash">Gemini 1.5 Flash (最穩定/推薦)</option>
+                                            <option value="gemini-2.5-flash">Gemini 2.5 Flash (最新一代)</option>
+                                            <option value="gemini-1.5-pro">Gemini 1.5 Pro (深度分析)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] text-slate-500 mb-1">更新延遲間隔</label>
+                                        <select 
+                                            value={updateInterval}
+                                            onChange={handleIntervalChange}
+                                            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-[11px] text-slate-300 focus:outline-none"
+                                        >
+                                            <option value="2500">2.5 秒 (少於5檔標的)</option>
+                                            <option value="4000">4.0 秒 (推薦防 429 報錯)</option>
+                                            <option value="6000">6.0 秒 (超過15檔標的)</option>
+                                            <option value="8000">8.0 秒 (超大型自訂清單)</option>
+                                        </select>
+                                    </div>
+                                </div>
                             </form>
                         ) : (
-                            <div class="mt-3 flex justify-between items-center bg-slate-950/40 border border-slate-850 rounded-xl px-3.5 py-2.5 text-xs">
-                                <span class="font-mono text-slate-500 font-medium">已安全儲存金鑰 (••••••••••••)</span>
-                                <button 
-                                    type="button" 
-                                    onClick={handleClearApiKey}
-                                    class="text-[10px] text-red-400 hover:text-red-300 font-medium cursor-pointer"
-                                >
-                                    清除
-                                </button>
+                            <div class="space-y-2">
+                                <div class="flex justify-between items-center bg-slate-950/40 border border-slate-850 rounded-xl px-3.5 py-2.5 text-xs">
+                                    <span class="font-mono text-slate-500 font-medium">已安全儲存金鑰 (••••••••••••)</span>
+                                    <button 
+                                        type="button" 
+                                        onClick={handleClearApiKey}
+                                        class="text-[10px] text-red-400 hover:text-red-300 font-medium cursor-pointer"
+                                    >
+                                        清除
+                                    </button>
+                                </div>
+                                <div class="flex justify-between text-[10px] text-slate-500 px-1 font-semibold">
+                                    <span>模型：<strong class="text-slate-400">{selectedModel}</strong></span>
+                                    <span>間隔：<strong class="text-slate-400">{updateInterval / 1000}秒</strong></span>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -1073,7 +1184,7 @@
                                         <thead class="bg-slate-950/80 text-slate-500 font-bold border-b border-slate-850 select-none">
                                             <tr>
                                                 <th class="py-3 px-2 text-center w-8">最愛</th>
-                                                <th class="py-3 px-2">編號/名稱</th>
+                                                <th class="py-3 px-2">名稱/編號/勝率</th>
                                                 <th class="py-3 px-1 text-center">昨日預測</th>
                                                 <th class="py-3 px-1 text-center">今日實際</th>
                                                 <th class="py-3 px-1 text-center">預測明日</th>
@@ -1117,11 +1228,18 @@
                                                                     {stock.isFavorite ? "⭐" : "☆"}
                                                                 </button>
                                                             </td>
-                                                            {/* 編號名稱/歷史勝率 */}
+                                                            {/* 名稱、編號、勝率 */}
                                                             <td class="py-3 px-2 font-semibold">
-                                                                <div class="text-slate-100 font-bold truncate max-w-[85px]">{stock.symbol}</div>
-                                                                <div class="text-[10px] text-sky-400 mt-0.5 flex items-center gap-1 font-bold">
-                                                                    🎯 {hitRate.rate} 
+                                                                <div class="flex items-center gap-1.5 flex-wrap">
+                                                                    <span class="text-slate-100 font-bold font-mono tracking-tight text-[13px]">{stock.symbol}</span>
+                                                                    {hitRate.rate !== '-' && (
+                                                                        <span class="text-[9px] bg-sky-500/10 text-sky-400 px-1 py-0.5 rounded font-extrabold">
+                                                                            🎯 {hitRate.rate}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <div class="text-[10px] text-slate-400 mt-0.5 truncate max-w-[130px]" title={stock.name}>
+                                                                    {stock.name}
                                                                 </div>
                                                             </td>
                                                             {/* 昨日預測 */}
@@ -1151,27 +1269,25 @@
                                                                     {disp.tomorrowPred}
                                                                 </span>
                                                             </td>
-                                                            {/* 拖曳排序與操作 */}
+                                                            {/* 操作與上下移動 */}
                                                             <td class="py-3 px-2 text-right" onClick={(e) => e.stopPropagation()}>
                                                                 <div class="flex items-center justify-end gap-1">
-                                                                    {/* 排序控制鍵 */}
                                                                     <div class="flex flex-col gap-0.5 mr-1.5">
                                                                         <button 
                                                                             onClick={(e) => moveUp(index, e)}
                                                                             disabled={index === 0}
-                                                                            class="text-[9px] text-slate-500 hover:text-slate-300 disabled:opacity-20 font-bold p-0.5 bg-slate-950/40 rounded animate-pulse"
+                                                                            class="text-[9px] text-slate-500 hover:text-slate-300 disabled:opacity-20 font-bold p-0.5 bg-slate-950/40 rounded"
                                                                         >
                                                                             ▲
                                                                         </button>
                                                                         <button 
                                                                             onClick={(e) => moveDown(index, e)}
                                                                             disabled={index === watchlist.length - 1}
-                                                                            class="text-[9px] text-slate-500 hover:text-slate-300 disabled:opacity-20 font-bold p-0.5 bg-slate-950/40 rounded animate-pulse"
+                                                                            class="text-[9px] text-slate-500 hover:text-slate-300 disabled:opacity-20 font-bold p-0.5 bg-slate-950/40 rounded"
                                                                         >
                                                                             ▼
                                                                         </button>
                                                                     </div>
-                                                                    {/* 刷新更新 */}
                                                                     <button 
                                                                         onClick={() => handleUpdateStock(stock)}
                                                                         disabled={loading || bulkUpdating}
@@ -1180,7 +1296,6 @@
                                                                     >
                                                                         🔄
                                                                     </button>
-                                                                    {/* 刪除 */}
                                                                     <button 
                                                                         onClick={(e) => handleRemoveStock(stock.symbol, e)}
                                                                         class="p-1 bg-slate-800 hover:bg-red-950 rounded-lg text-red-400 transition-all cursor-pointer"
@@ -1199,7 +1314,7 @@
                                 </div>
                             </div>
 
-                            {/* 📁 備份與匯出轉移看板 */}
+                            {/* 📁 跨裝置資料備份板 */}
                             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl">
                                 <button 
                                     onClick={() => setShowBackupBox(!showBackupBox)}
@@ -1308,7 +1423,6 @@
 
                                 {selectedStock.latestData ? (
                                     <div class="space-y-4">
-                                        {/* 大字成交價格與昨收比較 */}
                                         <div class="flex items-baseline gap-2 pt-1">
                                             <span class="text-3xl font-black text-white font-mono">${selectedStock.latestData.currentPrice}</span>
                                             {selectedStock.latestData.yesterdayClose && (
@@ -1324,7 +1438,7 @@
                                             )}
                                         </div>
 
-                                        {/* 多空預測機率 */}
+                                        {/* 多空預測 */}
                                         <div class="space-y-2 pt-3 border-t border-slate-850">
                                             <div class="flex justify-between text-[11px] font-bold">
                                                 <span class="text-emerald-400 flex items-center gap-1">🟢 漲的機率 {selectedStock.latestData.upProbability}%</span>
@@ -1355,7 +1469,6 @@
 
                                 {selectedStock.latestData ? (
                                     <div class="space-y-4">
-                                        {/* 四宮格大盤數據欄 */}
                                         <div class="grid grid-cols-2 gap-2.5">
                                             <div class="bg-slate-950/60 p-3 rounded-2xl border border-slate-850/60">
                                                 <p class="text-[10px] text-slate-500 font-bold">前日收盤 (昨收)</p>
@@ -1375,7 +1488,7 @@
                                             </div>
                                         </div>
 
-                                        {/* 當日買賣力量對比 (內盤比 vs 外盤比) */}
+                                        {/* 當日買賣力量對比 */}
                                         <div class="space-y-1.5 pt-2 border-t border-slate-850">
                                             <div class="flex justify-between text-[10px] font-bold text-slate-500">
                                                 <span>外盤 (主動買單) {selectedStock.latestData.buyRatio}%</span>
@@ -1387,7 +1500,7 @@
                                             </div>
                                         </div>
 
-                                        {/* 當日全部關鍵大單交易明細 */}
+                                        {/* 今日大單交易 */}
                                         <div class="space-y-2 pt-2 border-t border-slate-850">
                                             <h4 class="text-[11px] font-bold text-slate-400 tracking-wider">今日市場大單交易明細</h4>
                                             <div class="bg-slate-950/50 rounded-2xl border border-slate-850 overflow-hidden">
@@ -1505,7 +1618,7 @@
                     )}
 
                     {/* ==========================================
-                        🚀 【背景非阻塞進度看板】全新 floating 懸浮小麵板
+                        🚀 【背景進度看板】精準顯示失敗原因 (429 Rate Limit、404等)
                         ========================================== */}
                     {showBulkProgressCard && (
                         <div class="fixed bottom-4 right-4 left-4 md:left-auto md:w-80 bg-slate-900 border-2 border-indigo-500/40 rounded-2xl shadow-2xl p-4 z-40 animate-fadeIn space-y-3">
@@ -1535,19 +1648,26 @@
                                 </div>
                             </div>
 
-                            {/* 精簡狀態明細 */}
-                            <div class="max-h-24 overflow-y-auto custom-scrollbar bg-slate-950/40 rounded-xl border border-slate-850 p-2 space-y-1 select-none">
+                            {/* 精簡狀態明細 - 出錯時直接展示報錯文字 */}
+                            <div class="max-h-36 overflow-y-auto custom-scrollbar bg-slate-950/40 rounded-xl border border-slate-850 p-2 space-y-1.5 select-none">
                                 {watchlist.map((stock) => {
-                                    const status = bulkProgress.statusMap[stock.symbol];
-                                    if (status === undefined) return null;
+                                    const progressObj = bulkProgress.statusMap[stock.symbol];
+                                    if (!progressObj) return null;
                                     return (
-                                        <div key={stock.symbol} class="flex justify-between items-center text-[9px] font-semibold">
-                                            <span class="text-slate-400 truncate max-w-[120px]">{stock.symbol} ({stock.name})</span>
-                                            <span>
-                                                {status === 'waiting' && <span class="text-slate-600">等待 ⏳</span>}
-                                                {status === 'updating' && <span class="text-sky-400 animate-pulse">分析 ⚙️</span>}
-                                                {status === 'success' && <span class="text-emerald-400">成功 ✅</span>}
-                                                {status === 'failed' && <span class="text-rose-500">失敗 ❌</span>}
+                                        <div key={stock.symbol} class="flex justify-between items-start text-[9px] font-semibold py-0.5">
+                                            <span class="text-slate-400 truncate max-w-[100px]">{stock.symbol} ({stock.name})</span>
+                                            <span class="text-right">
+                                                {progressObj.status === 'waiting' && <span class="text-slate-600">等待 ⏳</span>}
+                                                {progressObj.status === 'updating' && <span class="text-sky-400 animate-pulse">分析 ⚙️</span>}
+                                                {progressObj.status === 'success' && <span class="text-emerald-400">成功 ✅</span>}
+                                                {progressObj.status === 'failed' && (
+                                                    <span class="text-rose-400 flex flex-col items-end">
+                                                        <span>失敗 ❌</span>
+                                                        <span class="text-[7.5px] text-rose-500/80 font-normal truncate max-w-[120px]" title={progressObj.message}>
+                                                            {progressObj.message || "錯誤"}
+                                                        </span>
+                                                    </span>
+                                                )}
                                             </span>
                                         </div>
                                     );
@@ -1568,7 +1688,6 @@
                         </div>
                     )}
 
-                    {/* 當更新正在背景跑，但使用者關閉了小面板時，提供一個小浮球提示，點擊可重開小面板 */}
                     {bulkUpdating && !showBulkProgressCard && (
                         <button 
                             onClick={() => setShowBulkProgressCard(true)}
