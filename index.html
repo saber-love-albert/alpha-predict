@@ -4,22 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AlphaPredict 智股預測家</title>
-    <!-- 載入 Tailwind CSS 4 -->
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- 載入最穩定的 Tailwind CSS 3.x CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <!-- 載入 React 18 & Babel 轉譯器 -->
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <!-- 載入 Chart.js 動態圖表 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- 載入 Lucide 圖標庫 -->
-    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         body { 
             -webkit-tap-highlight-color: transparent; 
-            background-color: #020617;
+            background-color: #0b0f19;
         }
-        /* 優化手機端捲軸樣式 */
+        /* 優化手機端滾動條 */
         .custom-scrollbar::-webkit-scrollbar {
             width: 4px;
         }
@@ -72,7 +70,7 @@
                 }
                 localStorage.setItem('gemini_api_key', apiKey.trim());
                 setShowKeyInput(false);
-                triggerToast('金鑰已安全儲存至您的手機中！', 'success');
+                triggerToast('金鑰已安全儲存！', 'success');
             };
 
             // 清除本地儲存的金鑰
@@ -96,17 +94,17 @@
                     chartInstance.current = new Chart(ctx, {
                         type: 'line',
                         data: {
-                            labels: sortedPrices.map(d => d.date.slice(5)), // 月-日
+                            labels: sortedPrices.map(d => d.date.slice(5)), // 只秀 月-日
                             datasets: [{
                                 data: sortedPrices.map(d => d.price),
-                                borderColor: '#0ea5e9',
-                                backgroundColor: 'rgba(14, 165, 233, 0.05)',
+                                borderColor: '#38bdf8',
+                                backgroundColor: 'rgba(56, 189, 248, 0.04)',
                                 borderWidth: 2,
                                 tension: 0.3,
                                 pointRadius: 4,
                                 pointHoverRadius: 6,
-                                pointBackgroundColor: '#0ea5e9',
-                                pointBorderColor: '#020617',
+                                pointBackgroundColor: '#38bdf8',
+                                pointBorderColor: '#0b0f19',
                                 pointBorderWidth: 1.5,
                                 fill: true
                             }]
@@ -115,21 +113,7 @@
                             responsive: true,
                             maintainAspectRatio: false,
                             plugins: {
-                                legend: { display: false },
-                                tooltip: {
-                                    backgroundColor: '#0f172a',
-                                    titleColor: '#94a3b8',
-                                    bodyColor: '#f8fafc',
-                                    borderColor: '#334155',
-                                    borderWidth: 1,
-                                    padding: 10,
-                                    displayColors: false,
-                                    callbacks: {
-                                        label: function(context) {
-                                            return `收盤價: $${context.parsed.y}`;
-                                        }
-                                    }
-                                }
+                                legend: { display: false }
                             },
                             scales: {
                                 x: {
@@ -146,7 +130,35 @@
                 }
             }, [data]);
 
-            // 核心預測分析邏輯 (包含 5 次指數型退避重試演算法)
+            // 智慧過濾 JSON 提取器 (動態組合避免中斷系統解析器)
+            const cleanAndExtractJson = (text) => {
+                let temp = text.trim();
+                
+                const backtick = '`';
+                const threeTicks = backtick + backtick + backtick;
+                const startTag = threeTicks + 'json';
+                const endTag = threeTicks;
+
+                // 優先解析 markdown json 區塊
+                let startIdx = temp.indexOf(startTag);
+                if (startIdx !== -1) {
+                    let endIdx = temp.indexOf(endTag, startIdx + startTag.length);
+                    if (endIdx !== -1) {
+                        return temp.substring(startIdx + startTag.length, endIdx).trim();
+                    }
+                }
+
+                // 備用解析法：尋找第一個 { 與最後一個 } 的區間
+                const firstBrace = temp.indexOf('{');
+                const lastBrace = temp.lastIndexOf('}');
+                if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                    return temp.substring(firstBrace, lastBrace + 1).trim();
+                }
+
+                return temp;
+            };
+
+            // 預測處理 (含 5 次指數型退避重試)
             const handlePredict = async (e) => {
                 e.preventDefault();
                 if (!apiKey.trim()) {
@@ -163,19 +175,19 @@
                 setError('');
                 setData(null);
 
+                // 提示詞不包含任何 ``` 符號避免解析錯誤
                 const prompt = `
                   你是一位精通全球股市與量化交易的首席分析師。請針對金融標的「${symbol.toUpperCase()}」進行下一交易日的漲跌幅走勢預測。
                   
-                  請利用你的「Google 搜尋功能 (Google Search Grounding)」，在網路上實時檢索並彙整以下資訊：
+                  請利用你的 Google 搜尋功能 (Google Search Grounding)，在網路上實時檢索並彙整以下資訊：
                   1. 該標的今天的最新收盤價/現價。
                   2. 該標的最近 7 至 10 個交易日的歷史收盤價序列（格式為 YYYY-MM-DD，請找出對應的真實價格，用來繪製圖表）。
                   3. 最新 24 小時內與該標的相關新聞、產業趨勢、總體經濟動向、重大財報消息。
 
-                  請結合搜尋到的「歷史趨勢（技術面）」與「最新利多/利空消息（基本面）」，進行多空機率運算，並輸出標準 JSON 格式。
+                  請結合搜尋到的「歷史趨勢（技術面）」與「最新利多/利空消息（基本面）」，進行多空機率運算。
 
-                  請嚴格遵守：
-                  1. 只返回標準的 JSON 格式，不要包含 \`\`\`json 標籤，不要有任何前後說明引言。
-                  2. JSON 結構必須完全符合以下欄位設定，且其中的 historicalPrices 請務必填入你搜尋到的真實歷史價格：
+                  請絕對只返回一個標準的 JSON 格式內容（可以直接用 markdown json 格式包裝），除此之外不要有任何前後說明引言。
+                  JSON 結構必須完全符合以下欄位設定，且其中的 historicalPrices 請務必填入你搜尋到的真實歷史價格：
                   {
                     "symbol": "${symbol.toUpperCase()}",
                     "currentPrice": 最新價格(數字),
@@ -214,39 +226,12 @@
                 };
 
                 try {
-                    // 修正關鍵點：將模型名稱改為穩定正式版 'gemini-2.5-flash'
+                    // 使用正式聯網穩定版
                     const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
                     
                     const payload = {
                         contents: [{ parts: [{ text: prompt }] }],
-                        tools: [{ google_search: {} }], // 開啟即時搜尋功能
-                        generationConfig: {
-                            responseMimeType: "application/json",
-                            responseSchema: {
-                                type: "OBJECT",
-                                properties: {
-                                    symbol: { type: "STRING" },
-                                    currentPrice: { type: "NUMBER" },
-                                    prediction: { type: "STRING" },
-                                    upProbability: { type: "INTEGER" },
-                                    downProbability: { type: "INTEGER" },
-                                    targetRange: { type: "STRING" },
-                                    historicalPrices: {
-                                        type: "ARRAY",
-                                        items: {
-                                            type: "OBJECT",
-                                            properties: {
-                                                date: { type: "STRING" },
-                                                price: { type: "NUMBER" }
-                                            },
-                                            required: ["date", "price"]
-                                        }
-                                    },
-                                    analysis: { type: "STRING" }
-                                },
-                                required: ["symbol", "currentPrice", "prediction", "upProbability", "downProbability", "targetRange", "historicalPrices", "analysis"]
-                            }
-                        }
+                        tools: [{ google_search: {} }] // 開啟 Google Grounding 聯網搜尋大腦
                     };
 
                     const result = await executeWithRetry(apiEndpoint, {
@@ -257,10 +242,12 @@
 
                     const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text;
                     if (!rawText) {
-                        throw new Error('AI 未能成功返回預測結果，請再次點擊預測。');
+                        throw new Error('AI 未能成功返回預測結果，請再試一次。');
                     }
 
-                    const parsedResult = JSON.parse(rawText.trim());
+                    const cleanedJsonString = cleanAndExtractJson(rawText);
+                    const parsedResult = JSON.parse(cleanedJsonString);
+                    
                     setData(parsedResult);
                     triggerToast('預測報告生成完畢！', 'success');
 
@@ -309,7 +296,7 @@
                                     placeholder="輸入 AIzaSy... 開頭的 API Key" 
                                     value={apiKey}
                                     onChange={(e) => setApiKey(e.target.value)}
-                                    class="flex-1 bg-slate-950 border border-slate-850 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 placeholder-slate-700 transition-all font-mono"
+                                    class="flex-1 bg-slate-950 border border-slate-800/80 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 placeholder-slate-700 transition-all font-mono"
                                 />
                                 <button 
                                     type="submit" 
@@ -319,8 +306,8 @@
                                 </button>
                             </form>
                         ) : (
-                            <div class="mt-3 flex justify-between items-center bg-slate-950/60 border border-slate-850 rounded-xl px-3.5 py-2.5 text-xs">
-                                <span class="font-mono text-slate-500">已安全儲存金鑰 (••••••••••••)</span>
+                            <div class="mt-3 flex justify-between items-center bg-slate-950/60 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs">
+                                <span class="font-mono text-slate-500 font-medium">已安全儲存金鑰 (••••••••••••)</span>
                                 <button 
                                     type="button" 
                                     onClick={handleClearApiKey}
@@ -338,10 +325,10 @@
                         <div class="flex gap-2">
                             <input 
                                 type="text" 
-                                placeholder="台股例如: 2330.TW | 美股: NVDA" 
+                                placeholder="台股如: 2330.TW | 美股: NVDA | ETF: 00830.TW" 
                                 value={symbol}
                                 onChange={(e) => setSymbol(e.target.value)}
-                                class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-sky-500 uppercase placeholder-slate-700 font-semibold"
+                                class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-sky-500 uppercase placeholder-slate-700 font-semibold text-slate-200"
                             />
                             <button 
                                 type="submit" 
