@@ -46,7 +46,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // 預設觀察股票清單 (在雲端尚未建立個人存檔時作為基礎範本，已內建前日收盤、交易明細、最高最低等數據)
+        // 預設觀察股票清單 (包含昨收、大單、能量條預設範本)
         const DEFAULT_WATCHLIST = [
             { 
                 symbol: '2330.TW', 
@@ -141,13 +141,31 @@
         ];
 
         // ==========================================
-        // 🔮 1. 初始化系統環境內建的雲端資料庫
+        // 🔮 1. 智慧防爆：偵測環境變數，安全初始化
         // ==========================================
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const firebaseApp = firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const db = firebase.firestore();
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'alpha-predict';
+        let db = null;
+        let auth = null;
+        let useFirebase = false;
+        let appId = 'alpha-predict';
+
+        try {
+            // 只有在系統變數存在且 Firebase SDK 載入成功時才啟用 Firebase 雲端同步
+            if (typeof firebase !== 'undefined' && typeof __firebase_config !== 'undefined' && __firebase_config) {
+                const firebaseConfig = JSON.parse(__firebase_config);
+                if (firebaseConfig && firebaseConfig.apiKey) {
+                    firebase.initializeApp(firebaseConfig);
+                    db = firebase.firestore();
+                    auth = firebase.auth();
+                    useFirebase = true;
+                }
+            }
+        } catch (e) {
+            console.warn("[環境防爆] 偵測為獨立網頁環境，自動降級為本地資料持久化模式:", e);
+        }
+
+        if (typeof __app_id !== 'undefined' && __app_id) {
+            appId = __app_id;
+        }
 
         function App() {
             // 雲端與帳戶相關 State
@@ -184,9 +202,41 @@
             const cancelBulkRef = useRef(false);
 
             // ==========================================
-            // 🔒 2. 核心安全認證優先機制
+            // 🔒 2. 安全初始化與快取防丟失載入機制
             // ==========================================
             useEffect(() => {
+                // 1. 先同步從本地 LocalStorage 載入，保證在 GitHub Pages 或是斷網時秒開不黑屏！
+                const localList = localStorage.getItem('alphapredict_watchlist_v4');
+                const localKey = localStorage.getItem('gemini_api_key');
+                
+                if (localList) {
+                    try {
+                        const parsed = JSON.parse(localList);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            setWatchlist(parsed);
+                        } else {
+                            setWatchlist(DEFAULT_WATCHLIST);
+                        }
+                    } catch (e) {
+                        setWatchlist(DEFAULT_WATCHLIST);
+                    }
+                } else {
+                    setWatchlist(DEFAULT_WATCHLIST);
+                    localStorage.setItem('alphapredict_watchlist_v4', JSON.stringify(DEFAULT_WATCHLIST));
+                }
+
+                if (localKey) {
+                    setApiKey(localKey);
+                    setShowKeyInput(false);
+                }
+
+                // 2. 如果不需要 Firebase 雲端模式 (GitHub Pages 下)，直接關閉同步讀取狀態
+                if (!useFirebase) {
+                    setCloudSyncing(false);
+                    return;
+                }
+
+                // 3. 在平台環境下執行雲端安全認證
                 const initAuth = async () => {
                     setCloudSyncing(true);
                     try {
@@ -196,8 +246,8 @@
                             await auth.signInAnonymously();
                         }
                     } catch (err) {
-                        console.error("[雲端錯誤] 帳戶認證失敗:", err);
-                        triggerToast("安全連線失敗，請稍後刷新重試", "error");
+                        console.error("[雲端防崩潰] 匿名認證失敗，降級為獨立本機運行模式:", err);
+                        setCloudSyncing(false);
                     }
                 };
                 initAuth();
@@ -209,10 +259,10 @@
             }, []);
 
             // ==========================================
-            // 📡 3. 雲端即時同步資料機制
+            // 📡 3. 雲端即時同步資料與本地快取同步
             // ==========================================
             useEffect(() => {
-                if (!user) return; 
+                if (!useFirebase || !user) return; 
 
                 setCloudSyncing(true);
                 const docRef = db.doc(`artifacts/${appId}/users/${user.uid}/watchlist/user_list`);
@@ -228,34 +278,34 @@
                                     isFavorite: item.isFavorite || false
                                 }));
                                 setWatchlist(normalizedList);
+                                // 雙重儲存：雲端更新時立刻備份到本機 LocalStorage
+                                localStorage.setItem('alphapredict_watchlist_v4', JSON.stringify(normalizedList));
 
-                                // 保持詳細頁面的最新同步
                                 if (selectedStock) {
                                     const freshStock = normalizedList.find(s => s.symbol === selectedStock.symbol);
                                     if (freshStock) {
                                         setSelectedStock(freshStock);
                                     }
                                 }
-                            } else {
-                                setWatchlist(DEFAULT_WATCHLIST);
                             }
-
                             if (cloudData.apiKey !== undefined) {
                                 setApiKey(cloudData.apiKey);
+                                localStorage.setItem('gemini_api_key', cloudData.apiKey);
                                 setShowKeyInput(!cloudData.apiKey.trim());
                             }
                         } else {
-                            setWatchlist(DEFAULT_WATCHLIST);
+                            // 第一次使用，同步本地資料到雲端
+                            const currentList = JSON.parse(localStorage.getItem('alphapredict_watchlist_v4')) || DEFAULT_WATCHLIST;
+                            const currentKey = localStorage.getItem('gemini_api_key') || '';
                             docRef.set({
-                                list: DEFAULT_WATCHLIST,
-                                apiKey: ''
+                                list: currentList,
+                                apiKey: currentKey
                             });
                         }
                         setCloudSyncing(false);
                     },
                     (err) => {
-                        console.error("[雲端錯誤] 讀取配置失敗:", err);
-                        triggerToast("無法與雲端同步，請檢查網路權限", "error");
+                        console.error("[雲端監聽錯誤] 無法取得遠端資料，維持本機資料顯示:", err);
                         setCloudSyncing(false);
                     }
                 );
@@ -264,22 +314,27 @@
             }, [user, selectedStock?.symbol]);
 
             // ==========================================
-            // 💾 4. 雲端加密存檔更新機制
+            // 💾 4. 複合式寫入：永遠儲存本地，智慧上傳雲端
             // ==========================================
-            const saveToCloud = async (newList, newKey) => {
-                if (!user) return;
-                setCloudSyncing(true);
-                try {
-                    const docRef = db.doc(`artifacts/${appId}/users/${user.uid}/watchlist/user_list`);
-                    await docRef.set({
-                        list: newList,
-                        apiKey: newKey
-                    });
-                    setCloudSyncing(false);
-                } catch (err) {
-                    console.error("[雲端錯誤] 寫入失敗:", err);
-                    triggerToast("同步雲端資料庫失敗", "error");
-                    setCloudSyncing(false);
+            const saveData = async (newList, newKey) => {
+                // 1. 無論如何先寫入 LocalStorage，確保安全不丟失！
+                localStorage.setItem('alphapredict_watchlist_v4', JSON.stringify(newList));
+                localStorage.setItem('gemini_api_key', newKey);
+
+                // 2. 如果啟用了雲端且登入成功，才非同步寫入資料庫
+                if (useFirebase && user) {
+                    setCloudSyncing(true);
+                    try {
+                        const docRef = db.doc(`artifacts/${appId}/users/${user.uid}/watchlist/user_list`);
+                        await docRef.set({
+                            list: newList,
+                            apiKey: newKey
+                        });
+                        setCloudSyncing(false);
+                    } catch (err) {
+                        console.error("[雲端同步失敗] 已幫您將資料安全保留在手機本機中:", err);
+                        setCloudSyncing(false);
+                    }
                 }
             };
 
@@ -296,17 +351,17 @@
                     triggerToast('請輸入有效的 Gemini API Key', 'error');
                     return;
                 }
-                saveToCloud(watchlist, apiKey.trim());
+                saveData(watchlist, apiKey.trim());
                 setShowKeyInput(false);
-                triggerToast('金鑰已安全備份至雲端！', 'success');
+                triggerToast('金鑰已安全儲存！', 'success');
             };
 
             // 清除金鑰
             const handleClearApiKey = () => {
-                saveToCloud(watchlist, '');
+                saveData(watchlist, '');
                 setApiKey('');
                 setShowKeyInput(true);
-                triggerToast('金鑰已從雲端安全移除', 'info');
+                triggerToast('金鑰已安全清除', 'info');
             };
 
             // 新增觀察股票 (支援批量輸入)
@@ -340,9 +395,9 @@
 
                 if (addedCount > 0) {
                     setWatchlist(updated);
-                    saveToCloud(updated, apiKey);
+                    saveData(updated, apiKey);
                     setNewSymbol('');
-                    triggerToast(`成功新增 ${addedCount} 檔股票並同步！`, 'success');
+                    triggerToast(`成功新增 ${addedCount} 檔股票並備份！`, 'success');
                 } else {
                     triggerToast('輸入的股票皆已在清單中。', 'info');
                 }
@@ -353,12 +408,12 @@
                 e.stopPropagation(); 
                 const updated = watchlist.filter(s => s.symbol !== sym);
                 setWatchlist(updated);
-                saveToCloud(updated, apiKey);
+                saveData(updated, apiKey);
                 if (selectedStock && selectedStock.symbol === sym) {
                     setSelectedStock(null);
                     setCurrentView('dashboard');
                 }
-                triggerToast('已從雲端清單中移除', 'info');
+                triggerToast('已成功移除標的', 'info');
             };
 
             // 切換我的最愛標記
@@ -367,13 +422,13 @@
                 const updated = watchlist.map(s => {
                     if (s.symbol === sym) {
                         const newFav = !s.isFavorite;
-                        triggerToast(newFav ? `已加 ${s.symbol} 至我的最愛 ⭐` : `已取消 ${s.symbol} 最愛`, 'success');
+                        triggerToast(newFav ? `已將 ${s.symbol} 加入最愛 ⭐` : `已取消 ${s.symbol} 最愛`, 'success');
                         return { ...s, isFavorite: newFav };
                     }
                     return s;
                 });
                 setWatchlist(updated);
-                saveToCloud(updated, apiKey);
+                saveData(updated, apiKey);
             };
 
             // 拖曳與排序邏輯 (電腦端滑鼠拖曳)
@@ -397,7 +452,7 @@
 
             const handleDragEnd = () => {
                 setDraggedIdx(null);
-                saveToCloud(watchlist, apiKey);
+                saveData(watchlist, apiKey);
                 triggerToast('自訂清單排序已儲存！', 'success');
             };
 
@@ -410,7 +465,7 @@
                 newList[index] = newList[index - 1];
                 newList[index - 1] = temp;
                 setWatchlist(newList);
-                saveToCloud(newList, apiKey);
+                saveData(newList, apiKey);
                 triggerToast('已向上排序', 'info');
             };
 
@@ -423,7 +478,7 @@
                 newList[index] = newList[index + 1];
                 newList[index + 1] = temp;
                 setWatchlist(newList);
-                saveToCloud(newList, apiKey);
+                saveData(newList, apiKey);
                 triggerToast('已向下排序', 'info');
             };
 
@@ -585,7 +640,7 @@
                 return temp;
             };
 
-            // 單股更新底層核心方法 - 全面融入「前日昨收」、「當日大單交易」與「量能分布」
+            // 單股更新底層核心方法 - 全面融入「昨收」、「成交大單」與「外內盤量能分布」
             const fetchSingleStockUpdate = async (stockItem, currentKey, listState) => {
                 const todayStr = new Date().toISOString().split('T')[0];
                 const ticks = String.fromCharCode(96) + String.fromCharCode(96) + String.fromCharCode(96);
@@ -669,7 +724,6 @@
                 const cleanedJson = cleanAndExtractJson(rawText);
                 const parsedResult = JSON.parse(cleanedJson);
 
-                // 預測與實際比對
                 let yesterdayPrediction = '-';
                 if (stockItem.latestData?.prediction) {
                     yesterdayPrediction = stockItem.latestData.prediction;
@@ -718,7 +772,7 @@
                     
                     const updatedWatchlist = watchlist.map(s => s.symbol === stockItem.symbol ? updatedStock : s);
                     setWatchlist(updatedWatchlist);
-                    await saveToCloud(updatedWatchlist, apiKey);
+                    await saveData(updatedWatchlist, apiKey);
                     
                     if (selectedStock && selectedStock.symbol === stockItem.symbol) {
                         setSelectedStock(updatedStock);
@@ -787,7 +841,7 @@
                         
                         tempWatchlist = tempWatchlist.map(s => s.symbol === currentStock.symbol ? updatedStock : s);
                         setWatchlist(tempWatchlist);
-                        await saveToCloud(tempWatchlist, apiKey);
+                        await saveData(tempWatchlist, apiKey);
 
                         if (selectedStock && selectedStock.symbol === currentStock.symbol) {
                             setSelectedStock(updatedStock);
@@ -835,14 +889,20 @@
                     <header class="text-center my-2 relative">
                         {/* 雲端同步狀態燈 */}
                         <div class="absolute top-0 right-0 text-[10px] bg-slate-900/60 border border-slate-800 rounded-full px-2 py-0.5 flex items-center gap-1">
-                            {cloudSyncing ? (
-                                <span class="flex items-center gap-1 text-sky-400">
-                                    <span class="inline-block h-1.5 w-1.5 rounded-full bg-sky-400 animate-ping"></span>
-                                    雲端同步中...
-                                </span>
+                            {useFirebase ? (
+                                cloudSyncing ? (
+                                    <span class="flex items-center gap-1 text-sky-400">
+                                        <span class="inline-block h-1.5 w-1.5 rounded-full bg-sky-400 animate-ping"></span>
+                                        雲端同步中...
+                                    </span>
+                                ) : (
+                                    <span class="flex items-center gap-1 text-emerald-400 font-medium">
+                                        ☁️ 已同步
+                                    </span>
+                                )
                             ) : (
-                                <span class="flex items-center gap-1 text-emerald-400 font-medium">
-                                    ☁️ 已同步
+                                <span class="flex items-center gap-1 text-slate-400 font-medium" title="本地儲存保護，已不受網頁刷新影響！">
+                                    💾 本地持久儲存
                                 </span>
                             )}
                         </div>
@@ -853,7 +913,7 @@
                         <h1 class="text-xl font-bold tracking-wide bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent">
                             AlphaPredict 智股預測家
                         </h1>
-                        <p class="text-[9px] text-slate-500 tracking-wider uppercase font-medium">Secure Cloud-Synced AI Predictor</p>
+                        <p class="text-[9px] text-slate-500 tracking-wider uppercase font-medium">Hybrid Cloud-Synced AI Predictor</p>
                     </header>
 
                     {/* API Key 設定區塊 */}
@@ -1094,7 +1154,7 @@
 
                     {/* 詳細預測結果與市場明細畫面 */}
                     {currentView === 'detail' && selectedStock && (
-                        <div class="space-y-4">
+                        <div class="space-y-4 font-medium">
                             {/* 返回按鈕 */}
                             <button 
                                 onClick={() => {
@@ -1105,8 +1165,8 @@
                                 ⬅️ 返回觀察儀表板
                             </button>
 
-                            {/* 1. 預報主看板 - 含「前日昨收」與「今日最新漲跌對照」 */}
-                            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+                            {/* 1. 預報主看板 - 含昨收與最新真實差價對照 */}
+                            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 animate-fadeIn">
                                 <div class="flex justify-between items-start">
                                     <div>
                                         <div class="flex items-center gap-1.5">
@@ -1136,7 +1196,7 @@
 
                                 {selectedStock.latestData ? (
                                     <div class="space-y-4">
-                                        {/* 大字價格顯示：今日最新價對照前日昨收的漲跌幅 */}
+                                        {/* 大字成交價格與台股風格昨收比較 */}
                                         <div class="flex items-baseline gap-2 pt-1">
                                             <span class="text-3xl font-black text-white font-mono">${selectedStock.latestData.currentPrice}</span>
                                             {selectedStock.latestData.yesterdayClose && (
@@ -1152,7 +1212,7 @@
                                             )}
                                         </div>
 
-                                        {/* 多空預測機率條 */}
+                                        {/* 多空預測機率 */}
                                         <div class="space-y-2 pt-3 border-t border-slate-850">
                                             <div class="flex justify-between text-[11px] font-bold">
                                                 <span class="text-emerald-400 flex items-center gap-1">🟢 漲的機率 {selectedStock.latestData.upProbability}%</span>
@@ -1175,17 +1235,15 @@
                                 )}
                             </div>
 
-                            {/* ==========================================
-                                📈 2. 新增：前日昨收與當日市場交易詳細看板
-                                ========================================== */}
-                            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+                            {/* 2. 當日市場交易詳細看板 (內含前日收盤昨收對照與大單細節) */}
+                            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 animate-fadeIn">
                                 <h3 class="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-850 pb-3">
                                     <span>📊</span> 當日市場交易資訊
                                 </h3>
 
                                 {selectedStock.latestData ? (
                                     <div class="space-y-4">
-                                        {/* 四宮格大盤數據欄（前日昨收、今日最高最低、成交總量） */}
+                                        {/* 四宮格大盤數據欄 */}
                                         <div class="grid grid-cols-2 gap-2.5">
                                             <div class="bg-slate-950/60 p-3 rounded-2xl border border-slate-850/60">
                                                 <p class="text-[10px] text-slate-500 font-bold">前日收盤 (昨收)</p>
@@ -1217,7 +1275,7 @@
                                             </div>
                                         </div>
 
-                                        {/* 當日全部關鍵大單交易明細 (Block Trades) */}
+                                        {/* 當日全部關鍵大單交易明細 */}
                                         <div class="space-y-2 pt-2 border-t border-slate-850">
                                             <h4 class="text-[11px] font-bold text-slate-400 tracking-wider">今日市場大單交易明細</h4>
                                             <div class="bg-slate-950/50 rounded-2xl border border-slate-850 overflow-hidden">
@@ -1253,12 +1311,12 @@
                                 ) : (
                                     <div class="bg-slate-950/40 border border-slate-850 border-dashed rounded-2xl p-6 text-center space-y-1">
                                         <p class="text-xs font-semibold text-slate-500">尚無今日市場交易資訊</p>
-                                        <p class="text-[10px] text-slate-600">請返回清單並點選 🔄 刷新預測，自動透過 AI 檢索今日大單與昨收數據！</p>
+                                        <p class="text-[10px] text-slate-600">請返回清單並點選 🔄 刷新預測，自動透過 AI 檢索今日昨收與大單數據！</p>
                                     </div>
                                 )}
                             </div>
 
-                            {/* 3. 雙標籤切換走勢圖表 */}
+                            {/* 3. 雙標籤切換 K 線與對照走勢圖表 */}
                             {selectedStock.latestData && (
                                 <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl space-y-3">
                                     <div class="flex justify-between items-center border-b border-slate-850 pb-2">
@@ -1304,7 +1362,7 @@
                                     </p>
                                 </div>
                             ) : (
-                                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-4 animate-fadeIn">
+                                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-4">
                                     <div class="text-4xl">🔮</div>
                                     <h3 class="text-sm font-bold text-slate-300">目前尚無預測資料</h3>
                                     <p class="text-xs text-slate-500 max-w-xs mx-auto">請在觀察清單中點擊 🔄 刷新按鈕，讓 Gemini 實時抓取價格並生成量化分析預報！</p>
