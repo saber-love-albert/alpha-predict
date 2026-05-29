@@ -35,12 +35,70 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // 預設觀察股票清單
+        // 為了讓使用者第一次打開就能體驗對照圖，預先置入一些生動的歷史模擬預測數據
         const DEFAULT_WATCHLIST = [
-            { symbol: '2330.TW', name: '台積電', predictionHistory: {}, latestData: null },
-            { symbol: '0050.TW', name: '元大台灣50', predictionHistory: {}, latestData: null },
-            { symbol: 'NVDA', name: '輝達', predictionHistory: {}, latestData: null },
-            { symbol: 'AAPL', name: '蘋果公司', predictionHistory: {}, latestData: null }
+            { 
+                symbol: '2330.TW', 
+                name: '台積電', 
+                predictionHistory: {
+                    "2026-05-25": { yesterdayPrediction: "漲", todayActual: "漲 (+1.20%)", tomorrowPrediction: "漲 (70%)", isCorrect: true },
+                    "2026-05-26": { yesterdayPrediction: "漲", todayActual: "漲 (+0.85%)", tomorrowPrediction: "跌 (65%)", isCorrect: true },
+                    "2026-05-27": { yesterdayPrediction: "跌", todayActual: "漲 (+0.40%)", tomorrowPrediction: "漲 (60%)", isCorrect: false },
+                    "2026-05-28": { yesterdayPrediction: "漲", todayActual: "漲 (+2.10%)", tomorrowPrediction: "漲 (75%)", isCorrect: true },
+                    "2026-05-29": { yesterdayPrediction: "漲", todayActual: "跌 (-1.05%)", tomorrowPrediction: "漲 (68%)", isCorrect: false }
+                }, 
+                latestData: {
+                    currentPrice: 912,
+                    prediction: "漲",
+                    upProbability: 68,
+                    downProbability: 32,
+                    targetRange: "905.0 ~ 925.0",
+                    todayActual: "跌",
+                    todayChangePercent: "-1.05%",
+                    historicalPrices: [
+                        { date: "2026-05-20", price: 890 },
+                        { date: "2026-05-21", price: 895 },
+                        { date: "2026-05-22", price: 892 },
+                        { date: "2026-05-25", price: 902.8 },
+                        { date: "2026-05-26", price: 910.5 },
+                        { date: "2026-05-27", price: 914.1 },
+                        { date: "2026-05-28", price: 933.3 },
+                        { date: "2026-05-29", price: 923.5 }
+                    ],
+                    analysis: "台積電近期在 2 奈米訂單超預期的利多刺激下，短期技術均線呈現強烈多頭排列。雖然今日受大盤獲利回吐賣壓影響微幅修正 1.05%，但整體量能並未失控。結合最新網路上關於外資調升評等的報告，預期下一個交易日多方將重新奪回主導權，有望在 910 元附近獲得強力支撐並反彈。"
+                } 
+            },
+            { 
+                symbol: 'NVDA', 
+                name: '輝達', 
+                predictionHistory: {
+                    "2026-05-25": { yesterdayPrediction: "漲", todayActual: "漲 (+3.40%)", tomorrowPrediction: "漲 (80%)", isCorrect: true },
+                    "2026-05-26": { yesterdayPrediction: "漲", todayActual: "跌 (-0.50%)", tomorrowPrediction: "跌 (60%)", isCorrect: false },
+                    "2026-05-27": { yesterdayPrediction: "跌", todayActual: "跌 (-1.80%)", tomorrowPrediction: "漲 (70%)", isCorrect: true },
+                    "2026-05-28": { yesterdayPrediction: "漲", todayActual: "漲 (+4.20%)", tomorrowPrediction: "漲 (72%)", isCorrect: true },
+                    "2026-05-29": { yesterdayPrediction: "漲", todayActual: "漲 (+1.10%)", tomorrowPrediction: "跌 (55%)", isCorrect: true }
+                }, 
+                latestData: {
+                    currentPrice: 1064.2,
+                    prediction: "跌",
+                    upProbability: 45,
+                    downProbability: 55,
+                    targetRange: "1045.0 ~ 1080.0",
+                    todayActual: "漲",
+                    todayChangePercent: "+1.10%",
+                    historicalPrices: [
+                        { date: "2026-05-20", price: 1010 },
+                        { date: "2026-05-21", price: 1025 },
+                        { date: "2026-05-22", price: 1018 },
+                        { date: "2026-05-25", price: 1052.6 },
+                        { date: "2026-05-26", price: 1047.3 },
+                        { date: "2026-05-27", price: 1028.5 },
+                        { date: "2026-05-28", price: 1071.7 },
+                        { date: "2026-05-29", price: 1083.5 }
+                    ],
+                    analysis: "輝達在發表全新 Blackwell 晶片架構後，市場情緒極度亢奮，股價強勢噴發創下新高。然而短線乖離率過大，技術指標 RSI 已進入 82 超買區。儘管今日因分析師調高目標價而續漲 1.10%，但盤後已有部分獲利了結資金退場。預期明日走勢將面臨震盪回檔壓力，建議投資人靜待拉回，不宜過度追高。"
+                } 
+            }
         ];
 
         function App() {
@@ -53,6 +111,7 @@
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState('');
             const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'detail'
+            const [chartTab, setChartTab] = useState('price'); // 'price' | 'match'
             const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
 
             // 一鍵更新進度追蹤 State
@@ -61,7 +120,7 @@
                 current: 0,
                 total: 0,
                 activeName: '',
-                statusMap: {} // { symbol: 'waiting' | 'updating' | 'success' | 'failed' }
+                statusMap: {} 
             });
 
             const chartRef = useRef(null);
@@ -78,7 +137,7 @@
                 }
 
                 // 載入觀察清單
-                const savedWatchlist = localStorage.getItem('alphapredict_watchlist');
+                const savedWatchlist = localStorage.getItem('alphapredict_watchlist_v2');
                 if (savedWatchlist) {
                     try {
                         setWatchlist(JSON.parse(savedWatchlist));
@@ -87,7 +146,7 @@
                     }
                 } else {
                     setWatchlist(DEFAULT_WATCHLIST);
-                    localStorage.setItem('alphapredict_watchlist', JSON.stringify(DEFAULT_WATCHLIST));
+                    localStorage.setItem('alphapredict_watchlist_v2', JSON.stringify(DEFAULT_WATCHLIST));
                 }
             }, []);
 
@@ -133,17 +192,17 @@
                     { symbol: sym, name: sym, predictionHistory: {}, latestData: null }
                 ];
                 setWatchlist(updated);
-                localStorage.setItem('alphapredict_watchlist', JSON.stringify(updated));
+                localStorage.setItem('alphapredict_watchlist_v2', JSON.stringify(updated));
                 setNewSymbol('');
                 triggerToast(`已成功將 ${sym} 新增至清單`, 'success');
             };
 
             // 刪除觀察股票
             const handleRemoveStock = (sym, e) => {
-                e.stopPropagation(); // 防止觸發點擊詳情
+                e.stopPropagation(); 
                 const updated = watchlist.filter(s => s.symbol !== sym);
                 setWatchlist(updated);
-                localStorage.setItem('alphapredict_watchlist', JSON.stringify(updated));
+                localStorage.setItem('alphapredict_watchlist_v2', JSON.stringify(updated));
                 if (selectedStock && selectedStock.symbol === sym) {
                     setSelectedStock(null);
                     setCurrentView('dashboard');
@@ -151,7 +210,19 @@
                 triggerToast('已從觀察清單移除', 'info');
             };
 
-            // 繪製詳細趨勢圖表
+            // 計算勝率的方法 (Hit Rate)
+            const calculateHitRate = (stock) => {
+                const history = stock.predictionHistory || {};
+                const keys = Object.keys(history);
+                const evaluatedKeys = keys.filter(k => history[k].isCorrect !== undefined);
+                if (evaluatedKeys.length === 0) return { rate: '-', total: 0 };
+                
+                const correctCount = evaluatedKeys.filter(k => history[k].isCorrect === true).length;
+                const rate = Math.round((correctCount / evaluatedKeys.length) * 100);
+                return { rate: `${rate}%`, total: evaluatedKeys.length };
+            };
+
+            // 繪製詳細圖表 (支援價格趨勢圖與預測對照圖切換)
             useEffect(() => {
                 if (currentView === 'detail' && selectedStock?.latestData?.historicalPrices && chartRef.current) {
                     if (chartInstance.current) {
@@ -159,38 +230,122 @@
                     }
                     const ctx = chartRef.current.getContext('2d');
                     
+                    // 將價格數據按日期遞增排序
                     const sortedPrices = [...selectedStock.latestData.historicalPrices].sort((a, b) => new Date(a.date) - new Date(b.date));
+                    const history = selectedStock.predictionHistory || {};
 
-                    chartInstance.current = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: sortedPrices.map(d => d.date.slice(5)),
-                            datasets: [{
-                                data: sortedPrices.map(d => d.price),
-                                borderColor: '#38bdf8',
-                                backgroundColor: 'rgba(56, 189, 248, 0.04)',
-                                borderWidth: 2,
-                                tension: 0.3,
-                                pointRadius: 4,
-                                pointHoverRadius: 6,
-                                pointBackgroundColor: '#38bdf8',
-                                pointBorderColor: '#0b0f19',
-                                pointBorderWidth: 1.5,
-                                fill: true
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: { legend: { display: false } },
-                            scales: {
-                                x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 } } },
-                                y: { grid: { color: '#111827' }, ticks: { color: '#64748b', font: { size: 10 } } }
+                    if (chartTab === 'price') {
+                        // 1. 繪製普通的歷史價格趨勢圖
+                        chartInstance.current = new Chart(ctx, {
+                            type: 'line',
+                            data: {
+                                labels: sortedPrices.map(d => d.date.slice(5)),
+                                datasets: [{
+                                    data: sortedPrices.map(d => d.price),
+                                    borderColor: '#38bdf8',
+                                    backgroundColor: 'rgba(56, 189, 248, 0.04)',
+                                    borderWidth: 2,
+                                    tension: 0.3,
+                                    pointRadius: 4,
+                                    pointHoverRadius: 6,
+                                    pointBackgroundColor: '#38bdf8',
+                                    pointBorderColor: '#0b0f19',
+                                    pointBorderWidth: 1.5,
+                                    fill: true
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: { legend: { display: false } },
+                                scales: {
+                                    x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 } } },
+                                    y: { grid: { color: '#111827' }, ticks: { color: '#64748b', font: { size: 10 } } }
+                                }
                             }
-                        }
-                    });
+                        });
+                    } else {
+                        // 2. 繪製「預測 vs 實際 對照走勢圖」
+                        // 根據歷史預測對照表，標註綠點(成功)與紅點(失敗)
+                        const pointColors = [];
+                        const pointRadii = [];
+                        const pointHoverRadii = [];
+                        const pointLabel = [];
+
+                        sortedPrices.forEach(d => {
+                            const predRecord = history[d.date];
+                            if (predRecord && predRecord.isCorrect !== undefined) {
+                                if (predRecord.isCorrect === true) {
+                                    pointColors.push('#10b981'); // 成功綠色
+                                    pointRadii.push(7);
+                                    pointHoverRadii.push(9);
+                                    pointLabel.push(`預估：${predRecord.yesterdayPrediction} (正確 ✅)`);
+                                } else {
+                                    pointColors.push('#f43f5e'); // 失敗紅色
+                                    pointRadii.push(7);
+                                    pointHoverRadii.push(9);
+                                    pointLabel.push(`預估：${predRecord.yesterdayPrediction} (錯誤 ❌)`);
+                                }
+                            } else {
+                                pointColors.push('#64748b'); // 未有預測數據 (灰色小點)
+                                pointRadii.push(3);
+                                pointHoverRadii.push(5);
+                                pointLabel.push('無當日預測紀錄');
+                            }
+                        });
+
+                        chartInstance.current = new Chart(ctx, {
+                            type: 'line',
+                            data: {
+                                labels: sortedPrices.map(d => d.date.slice(5)),
+                                datasets: [{
+                                    data: sortedPrices.map(d => d.price),
+                                    borderColor: '#4b5563',
+                                    backgroundColor: 'rgba(75, 85, 99, 0.02)',
+                                    borderWidth: 2,
+                                    tension: 0.1,
+                                    pointRadius: pointRadii,
+                                    pointHoverRadius: pointHoverRadii,
+                                    pointBackgroundColor: pointColors,
+                                    pointBorderColor: '#030712',
+                                    pointBorderWidth: 2,
+                                    fill: true
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false },
+                                    tooltip: {
+                                        backgroundColor: '#0f172a',
+                                        titleColor: '#94a3b8',
+                                        bodyColor: '#f8fafc',
+                                        borderColor: '#334155',
+                                        borderWidth: 1,
+                                        padding: 10,
+                                        displayColors: false,
+                                        callbacks: {
+                                            label: function(context) {
+                                                const price = context.parsed.y;
+                                                const idx = context.dataIndex;
+                                                return [
+                                                    `收盤價: $${price}`,
+                                                    `${pointLabel[idx]}`
+                                                ];
+                                            }
+                                        }
+                                    }
+                                },
+                                scales: {
+                                    x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 } } },
+                                    y: { grid: { color: '#111827' }, ticks: { color: '#64748b', font: { size: 10 } } }
+                                }
+                            }
+                        });
+                    }
                 }
-            }, [currentView, selectedStock]);
+            }, [currentView, selectedStock, chartTab]);
 
             // 智慧過濾 JSON 提取器
             const cleanAndExtractJson = (text) => {
@@ -217,7 +372,7 @@
                 return temp;
             };
 
-            // 單股更新底層核心方法 (回傳更新後的 Stock 物件，不影響外部 State)
+            // 單股更新底層核心方法
             const fetchSingleStockUpdate = async (stockItem, currentKey, listState) => {
                 const todayStr = new Date().toISOString().split('T')[0];
 
@@ -250,7 +405,6 @@
                   }
                 `;
 
-                // 指數型退避重試
                 const retryDelays = [1000, 2000, 4000, 8000, 16000];
                 const executeWithRetry = async (url, options, attempt = 0) => {
                     try {
@@ -293,10 +447,23 @@
                 const cleanedJson = cleanAndExtractJson(rawText);
                 const parsedResult = JSON.parse(cleanedJson);
 
-                // 傳入最新狀態避免多股批次更新時拿到的歷史資料被舊 State 覆蓋
+                // 智慧儲存與「對照比對」邏輯
+                // A. 找出我們「前一天(或之前最新一筆)」對明天的預測：
                 let yesterdayPrediction = '-';
                 if (stockItem.latestData?.prediction) {
                     yesterdayPrediction = stockItem.latestData.prediction;
+                }
+
+                // B. 自動比對：如果「昨日預測」有值，就去比對「今日實際結果」是否相符
+                let isCorrect = undefined;
+                if (yesterdayPrediction !== '-') {
+                    const actual = parsedResult.todayActual; // '漲' 或 '跌' 或 '平'
+                    if (actual === '平') {
+                        isCorrect = true; // 平盤算預測安全區
+                    } else {
+                        // 如果預測是"漲"且實際是"漲"，或是預測是"跌"且實際是"跌"
+                        isCorrect = (yesterdayPrediction === actual);
+                    }
                 }
 
                 return {
@@ -309,13 +476,14 @@
                             yesterdayPrediction: yesterdayPrediction,
                             todayActual: parsedResult.todayActual + " (" + parsedResult.todayChangePercent + ")",
                             tomorrowPrediction: parsedResult.prediction + " (" + parsedResult.upProbability + "%)",
+                            isCorrect: isCorrect, // 儲存比對成果！
                             rawData: parsedResult
                         }
                     }
                 };
             };
 
-            // 【主功能 1】手動點擊單股更新
+            // 手動點擊單股更新
             const handleUpdateStock = async (stockItem) => {
                 if (!apiKey.trim()) {
                     triggerToast('請先設定您的 Gemini API Key！', 'error');
@@ -331,7 +499,7 @@
                     
                     const updatedWatchlist = watchlist.map(s => s.symbol === stockItem.symbol ? updatedStock : s);
                     setWatchlist(updatedWatchlist);
-                    localStorage.setItem('alphapredict_watchlist', JSON.stringify(updatedWatchlist));
+                    localStorage.setItem('alphapredict_watchlist_v2', JSON.stringify(updatedWatchlist));
                     
                     if (selectedStock && selectedStock.symbol === stockItem.symbol) {
                         setSelectedStock(updatedStock);
@@ -347,7 +515,7 @@
                 }
             };
 
-            // 【主功能 2】強大的一鍵更新全部標的 (批次排隊順序處理機制)
+            // 一鍵更新所有觀察對象
             const handleUpdateAllWatchlist = async () => {
                 if (!apiKey.trim()) {
                     triggerToast('請先設定您的 Gemini API Key！', 'error');
@@ -360,7 +528,6 @@
                     return;
                 }
 
-                // 初始化進度 State
                 cancelBulkRef.current = false;
                 setBulkUpdating(true);
                 setError('');
@@ -377,7 +544,6 @@
                     statusMap: initialStatusMap
                 });
 
-                // 使用一個暫存清單在迴圈中動態累計狀態，確保資料讀寫的即時性
                 let tempWatchlist = [...watchlist];
 
                 for (let i = 0; i < watchlist.length; i++) {
@@ -388,53 +554,37 @@
 
                     const currentStock = watchlist[i];
 
-                    // 更新進度狀態為進行中
                     setBulkProgress(prev => ({
                         ...prev,
                         current: i + 1,
                         activeName: currentStock.name,
-                        statusMap: {
-                            ...prev.statusMap,
-                            [currentStock.symbol]: 'updating'
-                        }
+                        statusMap: { ...prev.statusMap, [currentStock.symbol]: 'updating' }
                     }));
 
                     try {
-                        // 執行單個預測請求
                         const updatedStock = await fetchSingleStockUpdate(currentStock, apiKey, tempWatchlist);
                         
-                        // 動態寫入暫存清單與 LocalStorage
                         tempWatchlist = tempWatchlist.map(s => s.symbol === currentStock.symbol ? updatedStock : s);
                         setWatchlist(tempWatchlist);
-                        localStorage.setItem('alphapredict_watchlist', JSON.stringify(tempWatchlist));
+                        localStorage.setItem('alphapredict_watchlist_v2', JSON.stringify(tempWatchlist));
 
-                        // 同步更新詳情狀態 (如果使用者正在點擊詳情檢視中)
                         if (selectedStock && selectedStock.symbol === currentStock.symbol) {
                             setSelectedStock(updatedStock);
                         }
 
-                        // 標記成功
                         setBulkProgress(prev => ({
                             ...prev,
-                            statusMap: {
-                                ...prev.statusMap,
-                                [currentStock.symbol]: 'success'
-                            }
+                            statusMap: { ...prev.statusMap, [currentStock.symbol]: 'success' }
                         }));
 
                     } catch (err) {
                         console.error(`更新 ${currentStock.symbol} 失敗:`, err);
-                        // 標記失敗，但不中斷其餘股票的排隊更新
                         setBulkProgress(prev => ({
                             ...prev,
-                            statusMap: {
-                                ...prev.statusMap,
-                                [currentStock.symbol]: 'failed'
-                            }
+                            statusMap: { ...prev.statusMap, [currentStock.symbol]: 'failed' }
                         }));
                     }
 
-                    // 每檔股票間隔 2.5 秒緩衝時間，防範高頻請求 API 限流
                     if (i < watchlist.length - 1 && !cancelBulkRef.current) {
                         await new Promise(resolve => setTimeout(resolve, 2500));
                     }
@@ -469,7 +619,7 @@
                     </header>
 
                     {/* API Key 設定區塊 */}
-                    <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl">
+                    <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl font-medium">
                         <div class="flex justify-between items-center">
                             <h2 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
                                 <span class="text-sky-400">🔑</span> Gemini API 金鑰設定
@@ -535,7 +685,6 @@
                                     </button>
                                 </form>
 
-                                {/* 一鍵更新全部標的按鈕 */}
                                 <button 
                                     onClick={handleUpdateAllWatchlist}
                                     disabled={loading || bulkUpdating}
@@ -548,7 +697,7 @@
                             {/* 觀察對象綜合對照表 */}
                             <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl">
                                 <div class="p-4 border-b border-slate-800 flex justify-between items-center">
-                                    <h3 class="text-xs font-black text-slate-400 uppercase tracking-wider">📊 每日觀察對稱儀表板</h3>
+                                    <h3 class="text-xs font-black text-slate-400 uppercase tracking-wider">📊 每日觀察與預測勝率儀表板</h3>
                                     {loading && !bulkUpdating && (
                                         <span class="inline-block animate-spin rounded-full h-3.5 w-3.5 border-2 border-slate-700 border-t-white"></span>
                                     )}
@@ -558,7 +707,7 @@
                                     <table class="w-full text-left text-xs min-w-[340px]">
                                         <thead class="bg-slate-950/80 text-slate-500 font-bold border-b border-slate-850">
                                             <tr>
-                                                <th class="py-3 px-3">編號/名稱</th>
+                                                <th class="py-3 px-3">標的/勝率</th>
                                                 <th class="py-3 px-2 text-center">昨日預測</th>
                                                 <th class="py-3 px-2 text-center">今日實際</th>
                                                 <th class="py-3 px-2 text-center">預測明日</th>
@@ -570,6 +719,7 @@
                                                 const disp = getDisplayData(stock);
                                                 const isUpToday = disp.todayAct.includes('漲') || disp.todayAct.includes('+');
                                                 const isDownToday = disp.todayAct.includes('跌') || disp.todayAct.includes('-');
+                                                const hitRate = calculateHitRate(stock);
                                                 
                                                 return (
                                                     <tr 
@@ -577,13 +727,17 @@
                                                         onClick={() => {
                                                             setSelectedStock(stock);
                                                             setCurrentView('detail');
+                                                            setChartTab('price'); // 預設進去先看價格
                                                         }}
                                                         class="hover:bg-slate-800/30 transition-colors cursor-pointer active:bg-slate-800"
                                                     >
-                                                        {/* 編號名稱 */}
+                                                        {/* 編號名稱/歷史勝率 */}
                                                         <td class="py-3 px-3 font-semibold">
                                                             <div class="text-slate-100 font-bold truncate max-w-[90px]">{stock.symbol}</div>
-                                                            <div class="text-[10px] text-slate-500 truncate max-w-[90px]">{stock.name}</div>
+                                                            <div class="text-[10px] text-sky-400 mt-0.5 flex items-center gap-1 font-bold">
+                                                                🎯 勝率 {hitRate.rate} 
+                                                                <span class="text-[9px] text-slate-500 font-normal">({hitRate.total}天)</span>
+                                                            </div>
                                                         </td>
                                                         {/* 昨日預測 */}
                                                         <td class="py-3 px-2 text-center font-bold">
@@ -648,7 +802,7 @@
                             {/* 返回按鈕 */}
                             <button 
                                 onClick={() => setCurrentView('dashboard')}
-                                class="bg-slate-900 border border-slate-800 hover:bg-slate-850 px-4 py-2 rounded-xl text-xs font-bold text-slate-300 cursor-pointer flex items-center gap-1 active:scale-95"
+                                class="bg-slate-900 border border-slate-800 hover:bg-slate-850 px-4 py-2 rounded-xl text-xs font-bold text-slate-300 cursor-pointer flex items-center gap-1 active:scale-95 animate-fadeIn"
                             >
                                 ⬅️ 返回觀察儀表板
                             </button>
@@ -660,7 +814,10 @@
                                         <div class="flex justify-between items-start">
                                             <div>
                                                 <h2 class="text-2xl font-black text-white tracking-tight">{selectedStock.symbol}</h2>
-                                                <p class="text-xs text-slate-400 mt-0.5">{selectedStock.name} · 最新價: <span class="font-mono font-semibold text-sky-400">${selectedStock.latestData.currentPrice}</span></p>
+                                                <p class="text-xs text-slate-400 mt-0.5">
+                                                    {selectedStock.name} · 🎯 歷史預測勝率：
+                                                    <span class="text-sky-400 font-bold">{calculateHitRate(selectedStock).rate}</span>
+                                                </p>
                                             </div>
                                             <div class={`text-xs font-black px-3.5 py-1.5 rounded-full ${
                                                 selectedStock.latestData.prediction === '漲' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
@@ -690,14 +847,37 @@
                                         </div>
                                     </div>
 
-                                    {/* 技術面：K 線趨勢圖 */}
+                                    {/* 新增：雙標籤切換走勢圖表 (價格趨勢 vs 預測對照) */}
                                     <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl space-y-3">
-                                        <h3 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
-                                            <span>📈</span> 聯網檢索歷史收盤價
-                                        </h3>
-                                        <div class="h-44">
+                                        <div class="flex justify-between items-center border-b border-slate-800 pb-2">
+                                            <div class="flex gap-2">
+                                                <button 
+                                                    onClick={() => setChartTab('price')}
+                                                    class={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${chartTab === 'price' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' : 'text-slate-500'}`}
+                                                >
+                                                    📈 價格趨勢圖
+                                                </button>
+                                                <button 
+                                                    onClick={() => setChartTab('match')}
+                                                    class={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${chartTab === 'match' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' : 'text-slate-500'}`}
+                                                >
+                                                    🎯 預測對照圖
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* 圖表呈現區 */}
+                                        <div class="h-44 relative">
                                             <canvas ref={chartRef}></canvas>
                                         </div>
+
+                                        {chartTab === 'match' && (
+                                            <div class="flex justify-center items-center gap-4 pt-1 text-[10px] text-slate-400 border-t border-slate-950">
+                                                <span class="flex items-center gap-1">🟢 <strong class="text-emerald-400">綠色節點</strong>: 預測成功</span>
+                                                <span class="flex items-center gap-1">🔴 <strong class="text-rose-400">紅色節點</strong>: 預測失敗</span>
+                                                <span class="flex items-center gap-1">⚪ <strong class="text-slate-500">灰色節點</strong>: 未預測</span>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* 基本面：AI 量化分析報告 */}
@@ -711,7 +891,7 @@
                                     </div>
                                 </div>
                             ) : (
-                                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-4">
+                                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-4 animate-fadeIn">
                                     <div class="text-4xl">🔮</div>
                                     <h3 class="text-sm font-bold text-slate-300">目前尚無預測資料</h3>
                                     <p class="text-xs text-slate-500 max-w-xs mx-auto">請在觀察清單中點擊 🔄 刷新按鈕，讓 Gemini 實時抓取價格並生成量化分析預報！</p>
@@ -752,7 +932,7 @@
                                         <span class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-slate-800 border-t-indigo-400"></span>
                                     </div>
                                     <h3 class="text-base font-black text-white">正在執行一鍵更新</h3>
-                                    <p class="text-xs text-indigo-400 font-semibold">進度: {bulkProgress.current} / {bulkProgress.total} 檔</p>
+                                    <p class="text-xs text-indigo-400 font-semibold font-mono">進度: {bulkProgress.current} / {bulkProgress.total} 檔</p>
                                     <p class="text-xs text-slate-400">正在處理: <strong class="text-slate-200">{bulkProgress.activeName}</strong></p>
                                 </div>
 
