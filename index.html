@@ -1,0 +1,394 @@
+```html
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AlphaPredict 智股預測家</title>
+    <!-- 載入 Tailwind CSS 4 -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- 載入 React 18 & Babel 轉譯器 -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 載入 Chart.js 動態圖表 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- 載入 Lucide 圖標庫 -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { 
+            -webkit-tap-highlight-color: transparent; 
+            background-color: #020617;
+        }
+        /* 優化手機端捲軸樣式 */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 9999px;
+        }
+    </style>
+</head>
+<body class="text-slate-100 font-sans min-h-screen antialiased select-none pb-12">
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        function App() {
+            const [symbol, setSymbol] = useState('');
+            const [apiKey, setApiKey] = useState('');
+            const [showKeyInput, setShowKeyInput] = useState(true);
+            const [loading, setLoading] = useState(false);
+            const [data, setData] = useState(null);
+            const [error, setError] = useState('');
+            const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
+            
+            const chartRef = useRef(null);
+            const chartInstance = useRef(null);
+
+            // 網頁載入時自動讀取本地儲存的 API Key
+            useEffect(() => {
+                const savedKey = localStorage.getItem('gemini_api_key');
+                if (savedKey) {
+                    setApiKey(savedKey);
+                    setShowKeyInput(false);
+                }
+            }, []);
+
+            // 自訂彈出訊息 (取代 Iframe 中被阻擋的 alert)
+            const triggerToast = (message, type = 'info') => {
+                setToast({ show: true, message, type });
+                setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 4000);
+            };
+
+            // 儲存金鑰到手機本地空間
+            const handleSaveApiKey = (e) => {
+                e.preventDefault();
+                if (!apiKey.trim()) {
+                    triggerToast('請輸入有效的 Gemini API Key', 'error');
+                    return;
+                }
+                localStorage.setItem('gemini_api_key', apiKey.trim());
+                setShowKeyInput(false);
+                triggerToast('金鑰已安全儲存至您的手機中！', 'success');
+            };
+
+            // 清除本地儲存的金鑰
+            const handleClearApiKey = () => {
+                localStorage.removeItem('gemini_api_key');
+                setApiKey('');
+                setShowKeyInput(true);
+                triggerToast('金鑰已安全清除', 'info');
+            };
+
+            // 繪製股票趨勢圖
+            useEffect(() => {
+                if (data && data.historicalPrices && chartRef.current) {
+                    // 銷毀舊圖表防止重疊與記憶體洩漏
+                    if (chartInstance.current) {
+                        chartInstance.current.destroy();
+                    }
+                    const ctx = chartRef.current.getContext('2d');
+                    
+                    // 將數據按日期遞增排序
+                    const sortedPrices = [...data.historicalPrices].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                    chartInstance.current = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: sortedPrices.map(d => d.date.slice(5)), // 月-日
+                            datasets: [{
+                                data: sortedPrices.map(d => d.price),
+                                borderColor: '#0ea5e9', // 亮天藍色
+                                backgroundColor: 'rgba(14, 165, 233, 0.05)',
+                                borderWidth: 2,
+                                tension: 0.3,
+                                pointRadius: 4,
+                                pointHoverRadius: 6,
+                                pointBackgroundColor: '#0ea5e9',
+                                pointBorderColor: '#020617',
+                                pointBorderWidth: 1.5,
+                                fill: true
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    backgroundColor: '#0f172a',
+                                    titleColor: '#94a3b8',
+                                    bodyColor: '#f8fafc',
+                                    borderColor: '#334155',
+                                    borderWidth: 1,
+                                    padding: 10,
+                                    displayColors: false,
+                                    callbacks: {
+                                        label: function(context) {
+                                            return `收盤價: $${context.parsed.y}`;
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    grid: { display: false },
+                                    ticks: { color: '#64748b', font: { size: 10 } }
+                                },
+                                y: {
+                                    grid: { color: '#1e293b' },
+                                    ticks: { color: '#64748b', font: { size: 10 } }
+                                }
+                            }
+                        }
+                    });
+                }
+            }, [data]);
+
+            // 核心預測分析邏輯 (包含 5 次指數型退避重試演算法)
+            const handlePredict = async (e) => {
+                e.preventDefault();
+                if (!apiKey.trim()) {
+                    triggerToast('請先設定您的 Gemini API Key！', 'error');
+                    setShowKeyInput(true);
+                    return;
+                }
+                if (!symbol.trim()) {
+                    triggerToast('請輸入股票或 ETF 代號！', 'error');
+                    return;
+                }
+
+                setLoading(true);
+                setError('');
+                setData(null);
+
+                // 構建極致嚴謹的 AI 提示詞 (Prompt) 確保精準輸出
+                const prompt = `
+                  你是一位精通全球股市與量化交易的首席分析師。請針對金融標的「${symbol.toUpperCase()}」進行下一交易日的漲跌幅走勢預測。
+                  
+                  請利用你的「Google 搜尋功能 (Google Search Grounding)」，在網路上實時檢索並彙整以下資訊：
+                  1. 該標的今天的最新收盤價/現價。
+                  2. 該標的最近 7 至 10 個交易日的歷史收盤價序列（格式為 YYYY-MM-DD，請找出對應的真實價格，用來繪製圖表）。
+                  3. 最新 24 小時內與該標的相關的新聞、產業趨勢、總體經濟動向、重大財報消息。
+
+                  請結合搜尋到的「歷史趨勢（技術面）」與「最新利多/利空消息（基本面）」，進行多空機率運算，並輸出標準 JSON 格式。
+
+                  請嚴格遵守：
+                  1. 只返回標準的 JSON 格式，不要包含 \`\`\`json 標籤，不要有任何前後說明引言。
+                  2. JSON 結構必須完全符合以下欄位設定，且其中的 historicalPrices 請務必填入你搜尋到的真實歷史價格：
+                  {
+                    "symbol": "${symbol.toUpperCase()}",
+                    "currentPrice": 最新價格(數字),
+                    "prediction": "漲" 或 "跌" 或 "盤整",
+                    "upProbability": 漲的機率百分比(整數，例如 65),
+                    "downProbability": 跌的機率百分比(整數，例如 35),
+                    "targetRange": "預測隔日波動區間，例如 152.0 ~ 155.5",
+                    "historicalPrices": [
+                      {"date": "2026-05-20", "price": 150.2},
+                      {"date": "2026-05-21", "price": 151.0}
+                    ],
+                    "analysis": "結合技術面（歷史趨勢）與今日網路最新消息（基本面）的綜合分析報告（繁體中文，約 200 字）。"
+                  }
+                `;
+
+                // 指數退避重試機制 (符合 1s, 2s, 4s, 8s, 16s 間隔要求)
+                const retryDelays = [1000, 2000, 4000, 8000, 16000];
+                const executeWithRetry = async (url, options, attempt = 0) => {
+                    try {
+                        const response = await fetch(url, options);
+                        if (!response.ok) {
+                            if (attempt < retryDelays.length) {
+                                await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
+                                return executeWithRetry(url, options, attempt + 1);
+                            }
+                            const errData = await response.json().catch(() => ({}));
+                            throw new Error(errData.error?.message || `API 響應錯誤: ${response.status}`);
+                        }
+                        return await response.json();
+                    } catch (err) {
+                        if (attempt < retryDelays.length) {
+                            await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
+                            return executeWithRetry(url, options, attempt + 1);
+                        }
+                        throw err;
+                    }
+                };
+
+                try {
+                    // 呼叫 Gemini 2.5 Flash 聯網預測模型 (使用預覽環境指定的最新穩定模型)
+                    const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey.trim()}`;
+                    
+                    const payload = {
+                        contents: [{ parts: [{ text: prompt }] }],
+                        tools: [{ google_search: {} }], // 開啟即時搜尋增強功能
+                        generationConfig: {
+                            responseMimeType: "application/json",
+                            responseSchema: {
+                                type: "OBJECT",
+                                properties: {
+                                    symbol: { type: "STRING" },
+                                    currentPrice: { type: "NUMBER" },
+                                    prediction: { type: "STRING" },
+                                    upProbability: { type: "INTEGER" },
+                                    downProbability: { type: "INTEGER" },
+                                    targetRange: { type: "STRING" },
+                                    historicalPrices: {
+                                        type: "ARRAY",
+                                        items: {
+                                            type: "OBJECT",
+                                            properties: {
+                                                date: { type: "STRING" },
+                                                price: { type: "NUMBER" }
+                                            },
+                                            required: ["date", "price"]
+                                        }
+                                    },
+                                    analysis: { type: "STRING" }
+                                },
+                                required: ["symbol", "currentPrice", "prediction", "upProbability", "downProbability", "targetRange", "historicalPrices", "analysis"]
+                            }
+                        }
+                    };
+
+                    const result = await executeWithRetry(apiEndpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (!rawText) {
+                        throw new Error('AI 未能成功返回有效的預測結果，請再次點擊預測。');
+                    }
+
+                    const parsedResult = JSON.parse(rawText.trim());
+                    setData(parsedResult);
+                    triggerToast('預測報告生成完畢！', 'success');
+
+                } catch (err) {
+                    console.error('預測失敗:', err);
+                    setError(err.message || '連線至 Gemini API 失敗，請確認您的金鑰與網路。');
+                    triggerToast('預測處理中斷', 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div class="max-w-md mx-auto p-4 space-y-5">
+                    {/* Header */}
+                    <header class="text-center my-4 space-y-1.5">
+                        <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-sky-500/10 text-sky-400 text-2xl mb-1 shadow-inner">
+                            🔮
+                        </div>
+                        <h1 class="text-xl font-bold tracking-wide bg-gradient-to-r from-sky-400 to-indigo-400 bg-clip-text text-transparent">
+                            AlphaPredict 智股預測家
+                        </h1>
+                        <p class="text-[10px] text-slate-500 tracking-wider uppercase font-medium">Serverless Client-Side AI Predictor</p>
+                    </header>
+
+                    {/* API Key 狀態設定卡 */}
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
+                        <div class="flex justify-between items-center">
+                            <h2 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                                <span class="text-sky-400">🔑</span> Gemini API 金鑰設定
+                            </h2>
+                            {!showKeyInput && (
+                                <button 
+                                    onClick={() => setShowKeyInput(true)} 
+                                    class="text-[10px] text-sky-400 hover:text-sky-300 font-medium cursor-pointer"
+                                >
+                                    修改金鑰
+                                </button>
+                            )}
+                        </div>
+
+                        {showKeyInput ? (
+                            <form onSubmit={handleSaveApiKey} class="mt-3 flex gap-2">
+                                <input 
+                                    type="password" 
+                                    placeholder="輸入 AIzaSy... 開頭的 API Key" 
+                                    value={apiKey}
+                                    onChange={(e) => setApiKey(e.target.value)}
+                                    class="flex-1 bg-slate-950 border border-slate-850 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 placeholder-slate-700 transition-all font-mono"
+                                />
+                                <button 
+                                    type="submit" 
+                                    class="bg-sky-500 hover:bg-sky-600 text-white font-semibold px-4 py-2.5 rounded-xl text-xs transition-all cursor-pointer active:scale-95"
+                                >
+                                    儲存
+                                </button>
+                            </form>
+                        ) : (
+                            <div class="mt-3 flex justify-between items-center bg-slate-950/60 border border-slate-850 rounded-xl px-3.5 py-2.5 text-xs">
+                                <span class="font-mono text-slate-500">已安全儲存金鑰 (••••••••••••)</span>
+                                <button 
+                                    type="button" 
+                                    onClick={handleClearApiKey}
+                                    class="text-[10px] text-red-400 hover:text-red-300 font-medium cursor-pointer"
+                                >
+                                    清除
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* 輸入與查詢區塊 */}
+                    <form onSubmit={handlePredict} class="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-xl space-y-3">
+                        <label class="block text-[11px] font-bold text-slate-400">輸入全球股票或 ETF 代號</label>
+                        <div class="flex gap-2">
+                            <input 
+                                type="text" 
+                                placeholder="台股例如: 2330.TW | 美股: NVDA" 
+                                value={symbol}
+                                onChange={(e) => setSymbol(e.target.value)}
+                                class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-sky-500 uppercase placeholder-slate-700 font-semibold"
+                            />
+                            <button 
+                                type="submit" 
+                                disabled={loading}
+                                class="bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 text-white font-bold px-5 py-3 rounded-xl text-xs transition-all shadow-md active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                                {loading ? (
+                                    <span class="inline-block animate-spin rounded-full h-3.5 w-3.5 border-2 border-slate-400 border-t-white"></span>
+                                ) : '🔮 預測'}
+                            </button>
+                        </div>
+                    </form>
+
+                    {/* 錯誤資訊 */}
+                    {error && (
+                        <div class="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl text-xs leading-relaxed">
+                            ⚠️ {error}
+                        </div>
+                    )}
+
+                    {/* 預測結果展示 */}
+                    {data && (
+                        <div class="space-y-4">
+                            {/* 預報主看板 */}
+                            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <h2 class="text-2xl font-black text-white tracking-tight">{data.symbol}</h2>
+                                        <p class="text-xs text-slate-400 mt-0.5">最新收盤價: <span class="font-mono font-semibold text-slate-200">${data.currentPrice}</span></p>
+                                    </div>
+                                    <div class={`text-xs font-black px-3.5 py-1.5 rounded-full ${
+                                        data.prediction === '漲' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
+                                        data.prediction === '跌' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/20' :
+                                        'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                                    }`}>
+                                        隔日走勢：{data.prediction}
+                                    </div>
+                                </div>
+
+                                {/* 多空機率條 */}
+                                <div class="space-y-2 pt-2 border-t border-slate-800/50">
+                                    <div class="flex justify-between text-[11px] font-bold">
+                                        <span class="text-emerald-400 flex items-center gap-1">🟢 漲的機率 {data.upProbability}%</span>
+                                        <span class="text-rose-400 flex items-center gap-1">🔴 跌的機率 {data.downProbability}%</span>
+                              
